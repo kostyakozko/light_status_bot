@@ -1,0 +1,5 @@
+token.txt
+light_status_data/
+__pycache__/
+*.pyc
+.env

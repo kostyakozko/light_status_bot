@@ -445,7 +445,8 @@ def main():
     app.router.add_get('/channelPing', handle_ping)
     
     # Run both servers
-    loop = asyncio.get_event_loop()
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     
     # Start timeout checker
     loop.create_task(check_timeouts())

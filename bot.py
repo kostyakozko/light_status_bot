@@ -29,7 +29,9 @@ def init_db():
             is_power_on INTEGER DEFAULT 0,
             last_status_change REAL,
             paused INTEGER DEFAULT 0,
-            channel_name TEXT
+            channel_name TEXT,
+            message_on TEXT,
+            message_off TEXT
         )
     """)
     conn.execute("""
@@ -213,6 +215,23 @@ def format_duration(seconds):
         mins = int((seconds % 3600) / 60)
         return f"{hours}год {mins}хв" if mins > 0 else f"{hours}год"
 
+def get_custom_message(channel_id, is_power_on):
+    """Get custom message template or default"""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT message_on, message_off FROM channels WHERE channel_id = ?", (channel_id,))
+    row = cursor.fetchone()
+    conn.close()
+    
+    if row:
+        if is_power_on:
+            return row[0] or "🟢 {time} Електрохарчування відновлено"
+        else:
+            return row[1] or "🔴 {time} Електрохарчування відсутнє"
+    
+    # Defaults
+    return "🟢 {time} Електрохарчування відновлено" if is_power_on else "🔴 {time} Електрохарчування відсутнє"
+
 # Telegram bot commands
 def get_channel_id_from_arg(arg):
     """Convert channel username or ID to channel ID"""
@@ -233,6 +252,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/get_key <channel_id|@username> - отримати API ключ\n"
         "/list_keys - показати всі канали та ключі\n"
         "/set_timezone <channel_id|@username> <timezone> - встановити часовий пояс\n"
+        "/set_message_on <channel_id|@username> <текст> - текст для увімкнення\n"
+        "/set_message_off <channel_id|@username> <текст> - текст для вимкнення\n"
+        "/reset_messages <channel_id|@username> - скинути до стандартних\n"
         "/regenerate_key <channel_id|@username> - згенерувати новий ключ\n"
         "/replace_key <channel_id|@username> <key> - замінити ключ\n"
         "/remove_channel <channel_id|@username> - видалити канал\n"
@@ -407,6 +429,112 @@ async def set_timezone_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     set_timezone(channel_id, tz)
     await update.message.reply_text(f"✅ Часовий пояс встановлено: {tz}")
+
+async def set_message_on_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "Використання: /set_message_on <channel_id> <текст>\n\n"
+            "Текст повинен містити {time} для часу.\n\n"
+            "Приклад:\n"
+            "/set_message_on -1001234567890 🟢 {time} Світло з'явилося"
+        )
+        return
+    
+    channel_id = await resolve_channel_id(context, context.args[0])
+    if channel_id is None:
+        await update.message.reply_text("❌ Невірний ID або username каналу")
+        return
+    
+    message_text = " ".join(context.args[1:])
+    
+    if "{time}" not in message_text:
+        await update.message.reply_text("❌ Текст повинен містити {time}")
+        return
+    
+    user_id = update.message.from_user.id
+    
+    if not is_owner(channel_id, user_id):
+        await update.message.reply_text("❌ Ви не є власником цього каналу")
+        return
+    
+    config = get_channel_config(channel_id)
+    if config["owner_id"] is None:
+        await update.message.reply_text("❌ Канал не налаштований")
+        return
+    
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("UPDATE channels SET message_on = ? WHERE channel_id = ?", (message_text, channel_id))
+    conn.commit()
+    conn.close()
+    
+    await update.message.reply_text(f"✅ Повідомлення для увімкнення встановлено:\n{message_text}")
+
+async def set_message_off_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "Використання: /set_message_off <channel_id> <текст>\n\n"
+            "Текст повинен містити {time} для часу.\n\n"
+            "Приклад:\n"
+            "/set_message_off -1001234567890 🔴 {time} Світло зникло"
+        )
+        return
+    
+    channel_id = await resolve_channel_id(context, context.args[0])
+    if channel_id is None:
+        await update.message.reply_text("❌ Невірний ID або username каналу")
+        return
+    
+    message_text = " ".join(context.args[1:])
+    
+    if "{time}" not in message_text:
+        await update.message.reply_text("❌ Текст повинен містити {time}")
+        return
+    
+    user_id = update.message.from_user.id
+    
+    if not is_owner(channel_id, user_id):
+        await update.message.reply_text("❌ Ви не є власником цього каналу")
+        return
+    
+    config = get_channel_config(channel_id)
+    if config["owner_id"] is None:
+        await update.message.reply_text("❌ Канал не налаштований")
+        return
+    
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("UPDATE channels SET message_off = ? WHERE channel_id = ?", (message_text, channel_id))
+    conn.commit()
+    conn.close()
+    
+    await update.message.reply_text(f"✅ Повідомлення для вимкнення встановлено:\n{message_text}")
+
+async def reset_messages_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Використання: /reset_messages <channel_id|@username>")
+        return
+    
+    channel_id = await resolve_channel_id(context, context.args[0])
+    if channel_id is None:
+        await update.message.reply_text("❌ Невірний ID або username каналу")
+        return
+    
+    user_id = update.message.from_user.id
+    
+    if not is_owner(channel_id, user_id):
+        await update.message.reply_text("❌ Ви не є власником цього каналу")
+        return
+    
+    config = get_channel_config(channel_id)
+    if config["owner_id"] is None:
+        await update.message.reply_text("❌ Канал не налаштований")
+        return
+    
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("UPDATE channels SET message_on = NULL, message_off = NULL WHERE channel_id = ?", (channel_id,))
+    conn.commit()
+    conn.close()
+    
+    await update.message.reply_text("✅ Повідомлення скинуто до стандартних")
 
 async def regenerate_key_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
@@ -1232,7 +1360,9 @@ async def handle_ping(request):
         tz = pytz.timezone(channel["timezone"])
         time_str = datetime.fromtimestamp(now, tz).strftime("%H:%M")
         
-        message = f"🟢 {time_str} Електрохарчування відновлено\n🕓 Його не було {duration_text}"
+        # Get custom message template
+        template = get_custom_message(channel["channel_id"], True)
+        message = template.replace("{time}", time_str) + f"\n🕓 Його не було {duration_text}"
         
         # Add daily stats
         stats = get_daily_stats(channel["channel_id"], channel["timezone"])
@@ -1298,7 +1428,9 @@ async def check_timeouts():
                 tz = pytz.timezone(tz_str)
                 time_str = datetime.fromtimestamp(last_req, tz).strftime("%H:%M")
                 
-                message = f"🔴 {time_str} Електрохарчування відсутнє\n🕓 Воно було {duration_text}"
+                # Get custom message template
+                template = get_custom_message(channel_id, False)
+                message = template.replace("{time}", time_str) + f"\n🕓 Воно було {duration_text}"
                 
                 # Add daily stats
                 stats = get_daily_stats(channel_id, tz_str)
@@ -1359,6 +1491,9 @@ def main():
     telegram_app.add_handler(CommandHandler("get_key", get_key_cmd))
     telegram_app.add_handler(CommandHandler("list_keys", list_keys_cmd))
     telegram_app.add_handler(CommandHandler("set_timezone", set_timezone_cmd))
+    telegram_app.add_handler(CommandHandler("set_message_on", set_message_on_cmd))
+    telegram_app.add_handler(CommandHandler("set_message_off", set_message_off_cmd))
+    telegram_app.add_handler(CommandHandler("reset_messages", reset_messages_cmd))
     telegram_app.add_handler(CommandHandler("regenerate_key", regenerate_key_cmd))
     telegram_app.add_handler(CommandHandler("replace_key", replace_key_cmd))
     telegram_app.add_handler(CommandHandler("remove_channel", remove_channel_cmd))

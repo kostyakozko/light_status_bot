@@ -133,7 +133,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/import_channel <channel_id> <key> - імпортувати з існуючим ключем\n"
         "/get_key <channel_id> - отримати API ключ\n"
         "/set_timezone <channel_id> <timezone> - встановити часовий пояс\n"
-        "/status <channel_id> - перевірити статус\n\n"
+        "/regenerate_key <channel_id> - згенерувати новий API ключ\n"
+        "/status <channel_id> - перевірити статус\n"
+        "/status - показати всі канали\n\n"
         "Перешліть повідомлення з каналу для отримання ID."
     )
 
@@ -256,6 +258,39 @@ async def set_timezone_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         set_timezone(channel_id, tz)
         await update.message.reply_text(f"✅ Часовий пояс встановлено: {tz}")
+    except ValueError:
+        await update.message.reply_text("❌ Невірний ID каналу")
+
+async def regenerate_key_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Використання: /regenerate_key <channel_id>")
+        return
+    
+    try:
+        channel_id = int(context.args[0])
+        user_id = update.message.from_user.id
+        
+        if not is_owner(channel_id, user_id):
+            await update.message.reply_text("❌ Ви не є власником цього каналу")
+            return
+        
+        config = get_channel_config(channel_id)
+        if config["owner_id"] is None:
+            await update.message.reply_text("❌ Канал не налаштований")
+            return
+        
+        new_key = secrets.token_urlsafe(32)
+        conn = sqlite3.connect(DB_FILE)
+        conn.execute("UPDATE channels SET api_key = ? WHERE channel_id = ?", (new_key, channel_id))
+        conn.commit()
+        conn.close()
+        
+        await update.message.reply_text(
+            f"✅ Новий API ключ згенеровано!\n\n"
+            f"🔑 API ключ: `{new_key}`\n\n"
+            f"⚠️ Старий ключ більше не працює. Оновіть його у вашому скрипті:\n"
+            f"`curl http://YOUR_SERVER:{HTTP_PORT}/channelPing?channel_key={new_key}`"
+        )
     except ValueError:
         await update.message.reply_text("❌ Невірний ID каналу")
 
@@ -488,6 +523,7 @@ def main():
     telegram_app.add_handler(CommandHandler("import_channel", import_channel_cmd))
     telegram_app.add_handler(CommandHandler("get_key", get_key_cmd))
     telegram_app.add_handler(CommandHandler("set_timezone", set_timezone_cmd))
+    telegram_app.add_handler(CommandHandler("regenerate_key", regenerate_key_cmd))
     telegram_app.add_handler(CommandHandler("status", status_cmd))
     telegram_app.add_handler(MessageHandler(filters.FORWARDED & filters.ChatType.PRIVATE, handle_forwarded))
     telegram_app.add_handler(ChatMemberHandler(handle_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))

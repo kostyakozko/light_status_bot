@@ -1160,6 +1160,48 @@ async def handle_dashboard(request):
     
     return web.Response(text=html, content_type='text/html')
 
+async def handle_api_channels(request):
+    """API endpoint for Grafana - list all channels"""
+    conn = sqlite3.connect(DB_FILE)
+    channels = conn.execute(
+        "SELECT channel_id, channel_name, is_power_on, last_request_time FROM channels WHERE owner_id IS NOT NULL"
+    ).fetchall()
+    conn.close()
+    
+    result = []
+    for ch_id, ch_name, is_on, last_req in channels:
+        result.append({
+            "channel_id": ch_id,
+            "channel_name": ch_name or f"Channel {ch_id}",
+            "status": "online" if is_on else "offline",
+            "last_ping": last_req
+        })
+    
+    return web.json_response(result)
+
+async def handle_api_history(request):
+    """API endpoint for Grafana - status history"""
+    conn = sqlite3.connect(DB_FILE)
+    history = conn.execute("""
+        SELECT h.timestamp, h.channel_id, c.channel_name, h.status 
+        FROM history h 
+        LEFT JOIN channels c ON h.channel_id = c.channel_id 
+        ORDER BY h.timestamp DESC 
+        LIMIT 1000
+    """).fetchall()
+    conn.close()
+    
+    result = []
+    for ts, ch_id, ch_name, status in history:
+        result.append({
+            "timestamp": int(ts * 1000),  # milliseconds for Grafana
+            "channel_id": ch_id,
+            "channel_name": ch_name or f"Channel {ch_id}",
+            "status": status
+        })
+    
+    return web.json_response(result)
+
 async def handle_ping(request):
     api_key = request.query.get('channel_key')
     if not api_key:
@@ -1333,6 +1375,8 @@ def main():
     
     # Start HTTP server
     app = web.Application()
+    app.router.add_get('/api/channels', handle_api_channels)
+    app.router.add_get('/api/history', handle_api_history)
     app.router.add_get('/status/@{username}', handle_dashboard)
     app.router.add_get('/status/{channel_id}', handle_dashboard)
     app.router.add_get('/channelPing', handle_ping)

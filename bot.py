@@ -280,13 +280,35 @@ async def set_timezone_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Невірний ID каналу")
 
 async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    
     if not context.args:
-        await update.message.reply_text("Використання: /status <channel_id>")
+        # Show all channels
+        conn = sqlite3.connect(DB_FILE)
+        channels = conn.execute("SELECT channel_id FROM channels WHERE owner_id = ?", (user_id,)).fetchall()
+        conn.close()
+        
+        if not channels:
+            await update.message.reply_text("❌ У вас немає налаштованих каналів")
+            return
+        
+        msg = "📊 Ваші канали:\n\n"
+        for (channel_id,) in channels:
+            config = get_channel_config(channel_id)
+            if config["last_request_time"] is None:
+                msg += f"{channel_id}: 🔴 (немає запитів)\n"
+            else:
+                tz = pytz.timezone(config["timezone"])
+                now = datetime.now(tz).timestamp()
+                time_since = now - config["last_request_time"]
+                status_emoji = "🟢" if config["is_power_on"] else "🔴"
+                msg += f"{channel_id}: {status_emoji} ({format_duration(time_since)} тому)\n"
+        
+        await update.message.reply_text(msg)
         return
     
     try:
         channel_id = int(context.args[0])
-        user_id = update.message.from_user.id
         
         if not is_owner(channel_id, user_id):
             await update.message.reply_text("❌ Ви не є власником цього каналу")

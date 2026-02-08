@@ -10,9 +10,8 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, ChatMemberHandler, filters, ContextTypes
 
 # Database setup
-DB_DIR = os.path.expanduser("~/light_status_data")
-os.makedirs(DB_DIR, exist_ok=True)
-DB_FILE = os.path.join(DB_DIR, "config.db")
+DB_FILE = "/var/lib/light_status/config.db"
+os.makedirs(os.path.dirname(DB_FILE), exist_ok=True)
 
 # Configuration
 TIMEOUT_MINUTES = 5

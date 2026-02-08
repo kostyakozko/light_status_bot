@@ -163,8 +163,9 @@ def get_daily_stats(channel_id, timezone):
     downtime = 0
     outages = 0
     
+    # Start counting from FIRST event today, not from midnight
     prev_status = rows[0][0]
-    prev_time = today_start
+    prev_time = rows[0][1]  # Use first event time, not today_start
     
     for status, timestamp in rows:
         duration = timestamp - prev_time

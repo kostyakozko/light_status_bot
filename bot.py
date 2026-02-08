@@ -1289,7 +1289,7 @@ async def check_timeouts():
                 
                 # Calculate how long it was on
                 if last_change:
-                    duration = now - last_change
+                    duration = last_req - last_change
                     duration_text = format_duration(duration)
                 else:
                     duration_text = "невідомо"

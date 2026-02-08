@@ -1,13 +1,13 @@
 # Light Status Bot
 
-Telegram bot for monitoring power/light status via HTTP requests with web dashboard.
+Telegram bot for monitoring power/light status via HTTP requests.
 
 ## Features
 
 - Monitor multiple channels from one Telegram account
 - HTTP endpoint for status updates (`/channelPing?channel_key=KEY`)
-- **Public web dashboard** for real-time status and statistics
-- **Grafana integration** for detailed charts and analytics
+- API endpoints for external dashboards (`/api/channels`, `/api/history`)
+- Simple built-in status page (`/status/{channel_id}`)
 - Automatic status detection (5 min timeout)
 - Daily statistics with uptime/downtime tracking
 - Personal DM notifications
@@ -98,44 +98,29 @@ Both bots will receive updates for redundancy!
 
 Full list: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
 
-## Web Dashboard
+## API Endpoints
 
-### Public Status Page
-View real-time status and today's statistics without authentication:
+The bot provides HTTP endpoints for monitoring and integration:
 
-**URL formats:**
+### Status Updates
+```bash
+GET /channelPing?channel_key=YOUR_KEY
 ```
-# HTTPS (recommended, encrypted)
-https://YOUR_DOMAIN/status/CHANNEL_ID
-https://YOUR_DOMAIN/status/@channelname
-https://YOUR_DOMAIN/status/channelname
+Device endpoint to report "power is on" status.
 
-# HTTP (works everywhere)
-http://YOUR_DOMAIN/status/CHANNEL_ID
-
-# Direct IP (if DNS fails)
-http://YOUR_SERVER_IP:8080/status/CHANNEL_ID
+### Built-in Status Page
 ```
+GET /status/{channel_id}
+GET /status/@channelname
+```
+Simple HTML page showing current status and today's statistics.
 
-**Features:**
-- Current status (🟢 Online / 🔴 Offline)
-- Last ping time
-- Today's uptime/downtime
-- Outage count
-- Auto-refreshes every 30 seconds
-
-### Grafana Analytics
-Detailed charts and historical data (requires authentication):
-
-**Access:** `https://YOUR_DOMAIN` (redirects to HTTPS for security)
-
-**Features:**
-- Daily/weekly/monthly/yearly charts
-- Custom time range queries
-- Multiple channel comparison
-- Advanced filtering and aggregation
-
-**Default credentials:** `admin` / `admin` (change on first login)
+### Data API
+```
+GET /api/channels
+GET /api/history?channel_id={id}&days={n}
+```
+JSON endpoints for external dashboards and integrations.
 
 ## How it works
 
@@ -161,17 +146,17 @@ notifications: user_id, channel_id, enabled
 
 ## Deployment
 
-**Services:**
-- `light-status-bot.service` - Telegram bot + HTTP server (port 8080)
-- `grafana-server.service` - Grafana analytics (port 3000)
-- `nginx` - Reverse proxy with SSL/TLS support
+**Service:** `light-status-bot.service` - Telegram bot + HTTP server (port 8080)
 
-**Database:** `~/light_status_data/config.db` (SQLite)
+**Database:** `/var/lib/light_status/config.db` (SQLite)
 
 **Requirements:**
 - Python 3.11+
-- Nginx with Let's Encrypt SSL certificate
-- Domain name (for HTTPS)
+- Systemd for service management
+
+**Optional:**
+- Nginx for reverse proxy and SSL
+- Domain name for HTTPS
 
 ## Development
 
@@ -181,7 +166,6 @@ notifications: user_id, channel_id, enabled
 - Python 3.11+ with python-telegram-bot
 - aiohttp for HTTP server
 - SQLite for data storage
-- Grafana for analytics
 
 ## License
 

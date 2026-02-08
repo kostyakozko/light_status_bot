@@ -110,6 +110,22 @@ def is_owner(channel_id, user_id):
     config = get_channel_config(channel_id)
     return config["owner_id"] is None or config["owner_id"] == user_id
 
+async def resolve_channel_id(context: ContextTypes.DEFAULT_TYPE, channel_input: str):
+    """Resolve channel username or ID to numeric channel_id"""
+    if channel_input.startswith('@'):
+        # Try to get chat info by username
+        try:
+            chat = await context.bot.get_chat(channel_input)
+            return chat.id
+        except Exception:
+            return None
+    else:
+        # Already numeric ID
+        try:
+            return int(channel_input)
+        except ValueError:
+            return None
+
 def set_timezone(channel_id, tz):
     conn = sqlite3.connect(DB_FILE)
     conn.execute("UPDATE channels SET timezone = ? WHERE channel_id = ?", (tz, channel_id))
@@ -194,16 +210,16 @@ def get_channel_id_from_arg(arg):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Команди:\n"
-        "/create_channel <channel_id> - створити новий канал (генерує ключ)\n"
-        "/import_channel <channel_id> <key> - імпортувати з існуючим ключем\n"
-        "/get_key <channel_id> - отримати API ключ\n"
-        "/set_timezone <channel_id> <timezone> - встановити часовий пояс\n"
-        "/regenerate_key <channel_id> - згенерувати новий випадковий ключ\n"
-        "/replace_key <channel_id> <key> - замінити ключ на свій\n"
-        "/remove_channel <channel_id> - видалити канал\n"
-        "/transfer <channel_id> <user_id> - передати власність\n"
-        "/history <channel_id> [кількість] - історія змін статусу\n"
-        "/status <channel_id> - перевірити статус\n"
+        "/create_channel <channel_id|@username> - створити новий канал\n"
+        "/import_channel <channel_id|@username> <key> - імпортувати з ключем\n"
+        "/get_key <channel_id|@username> - отримати API ключ\n"
+        "/set_timezone <channel_id|@username> <timezone> - встановити часовий пояс\n"
+        "/regenerate_key <channel_id|@username> - згенерувати новий ключ\n"
+        "/replace_key <channel_id|@username> <key> - замінити ключ\n"
+        "/remove_channel <channel_id|@username> - видалити канал\n"
+        "/transfer <channel_id|@username> <user_id> - передати власність\n"
+        "/history <channel_id|@username> [кількість] - історія змін\n"
+        "/status <channel_id|@username> - перевірити статус\n"
         "/status - показати всі канали\n\n"
         "Перешліть повідомлення з каналу для отримання ID."
     )
@@ -553,40 +569,40 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(msg)
         return
     
-    try:
-        channel_id = int(context.args[0])
-        
-        if not is_owner(channel_id, user_id):
-            await update.message.reply_text("❌ Ви не є власником цього каналу")
-            return
-        
-        config = get_channel_config(channel_id)
-        if config["owner_id"] is None:
-            await update.message.reply_text("❌ Канал не налаштований")
-            return
-        
-        if config["last_request_time"] is None:
-            await update.message.reply_text("📊 Статус: 🔴 світла немає\n\n⚠️ Ще не було жодного запиту")
-            return
-        
-        tz = pytz.timezone(config["timezone"])
-        now = datetime.now(tz).timestamp()
-        last_req = config["last_request_time"]
-        time_since = now - last_req
-        
-        status_emoji = "🟢" if config["is_power_on"] else "🔴"
-        status_text = "світло є" if config["is_power_on"] else "світла немає"
-        
-        msg = f"📊 Статус: {status_emoji} {status_text}\n\n"
-        msg += f"📶 Останній запит: {format_duration(time_since)} тому\n"
-        
-        if config["last_status_change"]:
-            status_duration = now - config["last_status_change"]
-            msg += f"🔄 Статус змінено: {format_duration(status_duration)} тому"
-        
-        await update.message.reply_text(msg)
-    except ValueError:
-        await update.message.reply_text("❌ Невірний ID каналу")
+    channel_id = await resolve_channel_id(context, context.args[0])
+    if channel_id is None:
+        await update.message.reply_text("❌ Невірний ID або username каналу")
+        return
+    
+    if not is_owner(channel_id, user_id):
+        await update.message.reply_text("❌ Ви не є власником цього каналу")
+        return
+    
+    config = get_channel_config(channel_id)
+    if config["owner_id"] is None:
+        await update.message.reply_text("❌ Канал не налаштований")
+        return
+    
+    if config["last_request_time"] is None:
+        await update.message.reply_text("📊 Статус: 🔴 світла немає\n\n⚠️ Ще не було жодного запиту")
+        return
+    
+    tz = pytz.timezone(config["timezone"])
+    now = datetime.now(tz).timestamp()
+    last_req = config["last_request_time"]
+    time_since = now - last_req
+    
+    status_emoji = "🟢" if config["is_power_on"] else "🔴"
+    status_text = "світло є" if config["is_power_on"] else "світла немає"
+    
+    msg = f"📊 Статус: {status_emoji} {status_text}\n\n"
+    msg += f"📶 Останній запит: {format_duration(time_since)} тому\n"
+    
+    if config["last_status_change"]:
+        status_duration = now - config["last_status_change"]
+        msg += f"🔄 Статус змінено: {format_duration(status_duration)} тому"
+    
+    await update.message.reply_text(msg)
 
 async def handle_forwarded(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message

@@ -231,7 +231,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/history <channel_id|@username> [кількість] - історія змін\n"
         "/notify <channel_id|@username> <on|off> - сповіщення в DM\n"
         "/notify - показати налаштування сповіщень\n"
-        "/pause <channel_id|@username> <on|off> - призупинити/відновити моніторинг\n"
+        "/pause <channel_id|@username> <on|off> - призупинити/відновити\n"
+        "/stop <channel_id|@username> - зупинити моніторинг\n"
+        "/resume <channel_id|@username> - відновити моніторинг\n"
         "/export <channel_id|@username> <csv|json> - експорт всієї історії\n"
         "/status <channel_id|@username> - перевірити статус\n"
         "/status - показати всі канали\n\n"
@@ -644,6 +646,26 @@ async def pause_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⏸️ Моніторинг призупинено. Бот не буде відстежувати зміни статусу.")
     else:
         await update.message.reply_text("▶️ Моніторинг відновлено.")
+
+async def stop_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Alias for /pause on"""
+    if not context.args:
+        await update.message.reply_text("Використання: /stop <channel_id|@username>")
+        return
+    
+    # Add 'on' argument and call pause_cmd
+    context.args.append('on')
+    await pause_cmd(update, context)
+
+async def resume_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Alias for /pause off"""
+    if not context.args:
+        await update.message.reply_text("Використання: /resume <channel_id|@username>")
+        return
+    
+    # Add 'off' argument and call pause_cmd
+    context.args.append('off')
+    await pause_cmd(update, context)
 
 async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) < 2:
@@ -1063,6 +1085,8 @@ def main():
     telegram_app.add_handler(CommandHandler("history", history_cmd))
     telegram_app.add_handler(CommandHandler("notify", notify_cmd))
     telegram_app.add_handler(CommandHandler("pause", pause_cmd))
+    telegram_app.add_handler(CommandHandler("stop", stop_cmd))
+    telegram_app.add_handler(CommandHandler("resume", resume_cmd))
     telegram_app.add_handler(CommandHandler("export", export_cmd))
     telegram_app.add_handler(CommandHandler("status", status_cmd))
     telegram_app.add_handler(MessageHandler(filters.FORWARDED & filters.ChatType.PRIVATE, handle_forwarded))

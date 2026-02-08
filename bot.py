@@ -162,8 +162,14 @@ def get_daily_stats(channel_id, timezone):
         (channel_id, today_start)
     ).fetchall()
     
-    # Get current status if no events today
-    if not rows:
+    # Get status at midnight (last event before today, or current status)
+    status_at_midnight = conn.execute(
+        "SELECT status FROM history WHERE channel_id = ? AND timestamp < ? ORDER BY timestamp DESC LIMIT 1",
+        (channel_id, today_start)
+    ).fetchone()
+    
+    # If no events today and no history before today, get current status
+    if not rows and not status_at_midnight:
         cur = conn.execute("SELECT is_power_on, last_status_change FROM channels WHERE channel_id = ?", (channel_id,))
         channel = cur.fetchone()
         conn.close()
@@ -184,9 +190,32 @@ def get_daily_stats(channel_id, timezone):
     downtime = 0
     outages = 0
     
-    # Start counting from FIRST event today, not from midnight
-    prev_status = rows[0][0]
-    prev_time = rows[0][1]  # Use first event time, not today_start
+    # Start from midnight with status at that time
+    if status_at_midnight:
+        prev_status = status_at_midnight[0]
+    elif rows:
+        # No history before today, use first event's status
+        prev_status = rows[0][0]
+    else:
+        return None
+    
+    prev_time = today_start  # Start counting from midnight
+    
+    for status, timestamp in rows:
+        duration = timestamp - prev_time
+        if prev_status == 1:
+            uptime += duration
+        else:
+            downtime += duration
+        
+        if status == 0 and prev_status == 1:
+            outages += 1
+        
+        prev_status = status
+        prev_time = timestamp
+    
+    # Add time from last event to now
+    duration = now_ts - prev_time
     
     for status, timestamp in rows:
         duration = timestamp - prev_time

@@ -39,7 +39,14 @@ python bot.py
 3. Bot generates unique API key
 4. Add to your ping script:
 ```bash
-curl http://YOUR_SERVER:8080/channelPing?channel_key=YOUR_KEY
+# HTTPS (encrypted, recommended)
+curl https://YOUR_DOMAIN/channelPing?channel_key=YOUR_KEY
+
+# HTTP (works everywhere)
+curl http://YOUR_DOMAIN/channelPing?channel_key=YOUR_KEY
+
+# Direct IP (if DNS fails)
+curl http://YOUR_SERVER_IP:8080/channelPing?channel_key=YOUR_KEY
 ```
 
 ### Option 2: Import Existing Channel (From Original Bot)
@@ -47,7 +54,8 @@ curl http://YOUR_SERVER:8080/channelPing?channel_key=YOUR_KEY
 2. Use `/import_channel <channel_id> <existing_key>`
 3. Add to your existing ping script (alongside original bot):
 ```bash
-curl http://api.svitlobot.in.ua/channelPing?channel_key=AWAHFETGAL
+curl http://api.svitlobot.in.ua/channelPing?channel_key=YOUR_KEY
+curl https://YOUR_DOMAIN/channelPing?channel_key=YOUR_KEY
 curl http://YOUR_SERVER:8080/channelPing?channel_key=AWAHFETGAL
 ```
 
@@ -96,9 +104,18 @@ Full list: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
 View real-time status and today's statistics without authentication:
 
 **URL formats:**
-- By channel ID: `http://141.148.245.165:8080/status/-1002147424649`
-- By username: `http://141.148.245.165:8080/status/@channelname`
-- By username (no @): `http://141.148.245.165:8080/status/channelname`
+```
+# HTTPS (recommended, encrypted)
+https://YOUR_DOMAIN/status/CHANNEL_ID
+https://YOUR_DOMAIN/status/@channelname
+https://YOUR_DOMAIN/status/channelname
+
+# HTTP (works everywhere)
+http://YOUR_DOMAIN/status/CHANNEL_ID
+
+# Direct IP (if DNS fails)
+http://YOUR_SERVER_IP:8080/status/CHANNEL_ID
+```
 
 **Features:**
 - Current status (🟢 Online / 🔴 Offline)
@@ -110,7 +127,7 @@ View real-time status and today's statistics without authentication:
 ### Grafana Analytics
 Detailed charts and historical data (requires authentication):
 
-**Access:** `http://141.148.245.165:3000`
+**Access:** `https://YOUR_DOMAIN` (redirects to HTTPS for security)
 
 **Features:**
 - Daily/weekly/monthly/yearly charts
@@ -144,16 +161,17 @@ notifications: user_id, channel_id, enabled
 
 ## Deployment
 
-## Deployment
-
-**Server:** Oracle Cloud (141.148.245.165)
 **Services:**
 - `light-status-bot.service` - Telegram bot + HTTP server (port 8080)
 - `grafana-server.service` - Grafana analytics (port 3000)
+- `nginx` - Reverse proxy with SSL/TLS support
 
 **Database:** `~/light_status_data/config.db` (SQLite)
 
-See deployment instructions in image bot's ORACLE_COMMANDS.md.
+**Requirements:**
+- Python 3.11+
+- Nginx with Let's Encrypt SSL certificate
+- Domain name (for HTTPS)
 
 ## Development
 

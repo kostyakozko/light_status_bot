@@ -161,10 +161,24 @@ def get_daily_stats(channel_id, timezone):
         "SELECT status, timestamp FROM history WHERE channel_id = ? AND timestamp >= ? ORDER BY timestamp ASC",
         (channel_id, today_start)
     ).fetchall()
-    conn.close()
     
+    # Get current status if no events today
     if not rows:
-        return None
+        cur = conn.execute("SELECT is_power_on, last_status_change FROM channels WHERE channel_id = ?", (channel_id,))
+        channel = cur.fetchone()
+        conn.close()
+        
+        if not channel or channel[1] is None:
+            return None
+        
+        # Calculate time from midnight to now in current status
+        duration = now_ts - today_start
+        if channel[0] == 1:  # is_power_on
+            return {"uptime": duration, "downtime": 0, "outages": 0}
+        else:
+            return {"uptime": 0, "downtime": duration, "outages": 0}
+    
+    conn.close()
     
     uptime = 0
     downtime = 0

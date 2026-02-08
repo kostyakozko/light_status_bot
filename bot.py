@@ -28,7 +28,8 @@ def init_db():
             timezone TEXT DEFAULT 'Europe/Kiev',
             last_request_time REAL,
             is_power_on INTEGER DEFAULT 0,
-            last_status_change REAL
+            last_status_change REAL,
+            paused INTEGER DEFAULT 0
         )
     """)
     conn.execute("""
@@ -230,6 +231,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/history <channel_id|@username> [кількість] - історія змін\n"
         "/notify <channel_id|@username> <on|off> - сповіщення в DM\n"
         "/notify - показати налаштування сповіщень\n"
+        "/pause <channel_id|@username> <on|off> - призупинити/відновити моніторинг\n"
         "/status <channel_id|@username> - перевірити статус\n"
         "/status - показати всі канали\n\n"
         "Перешліть повідомлення з каналу для отримання ID."
@@ -601,6 +603,47 @@ async def notify_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status_text = "увімкнено" if enabled else "вимкнено"
     await update.message.reply_text(f"✅ Сповіщення {status_text}")
 
+async def pause_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Використання: /pause <channel_id|@username> <on|off>")
+        return
+    
+    if len(context.args) < 2:
+        await update.message.reply_text("Використання: /pause <channel_id|@username> <on|off>")
+        return
+    
+    channel_id = await resolve_channel_id(context, context.args[0])
+    if channel_id is None:
+        await update.message.reply_text("❌ Невірний ID або username каналу")
+        return
+    
+    action = context.args[1].lower()
+    if action not in ['on', 'off']:
+        await update.message.reply_text("❌ Використовуйте 'on' (призупинити) або 'off' (відновити)")
+        return
+    
+    user_id = update.message.from_user.id
+    
+    if not is_owner(channel_id, user_id):
+        await update.message.reply_text("❌ Ви не є власником цього каналу")
+        return
+    
+    config = get_channel_config(channel_id)
+    if config["owner_id"] is None:
+        await update.message.reply_text("❌ Канал не налаштований")
+        return
+    
+    paused = 1 if action == 'on' else 0
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("UPDATE channels SET paused = ? WHERE channel_id = ?", (paused, channel_id))
+    conn.commit()
+    conn.close()
+    
+    if paused:
+        await update.message.reply_text("⏸️ Моніторинг призупинено. Бот не буде відстежувати зміни статусу.")
+    else:
+        await update.message.reply_text("▶️ Моніторинг відновлено.")
+
 async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     
@@ -819,7 +862,7 @@ async def check_timeouts():
         await asyncio.sleep(30)  # Check every 30 seconds
         
         conn = sqlite3.connect(DB_FILE)
-        cur = conn.execute("SELECT channel_id, api_key, timezone, last_request_time, is_power_on, last_status_change FROM channels WHERE is_power_on = 1")
+        cur = conn.execute("SELECT channel_id, api_key, timezone, last_request_time, is_power_on, last_status_change FROM channels WHERE is_power_on = 1 AND paused = 0")
         channels = cur.fetchall()
         conn.close()
         
@@ -910,6 +953,7 @@ def main():
     telegram_app.add_handler(CommandHandler("transfer", transfer_cmd))
     telegram_app.add_handler(CommandHandler("history", history_cmd))
     telegram_app.add_handler(CommandHandler("notify", notify_cmd))
+    telegram_app.add_handler(CommandHandler("pause", pause_cmd))
     telegram_app.add_handler(CommandHandler("status", status_cmd))
     telegram_app.add_handler(MessageHandler(filters.FORWARDED & filters.ChatType.PRIVATE, handle_forwarded))
     telegram_app.add_handler(ChatMemberHandler(handle_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))

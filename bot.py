@@ -974,6 +974,170 @@ async def handle_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TY
 # HTTP server for ping requests
 telegram_app = None
 
+async def handle_dashboard(request):
+    """Simple public dashboard for a channel"""
+    channel_id = request.match_info.get('channel_id')
+    
+    if not channel_id:
+        return web.Response(text="Missing channel_id", status=400)
+    
+    try:
+        channel_id = int(channel_id)
+    except ValueError:
+        return web.Response(text="Invalid channel_id", status=400)
+    
+    config = get_channel_config(channel_id)
+    if config["owner_id"] is None:
+        return web.Response(text="Channel not found", status=404)
+    
+    # Get current status
+    tz = pytz.timezone(config["timezone"])
+    now = datetime.now(tz)
+    
+    if config["last_request_time"]:
+        last_ping = datetime.fromtimestamp(config["last_request_time"], tz)
+        time_since_ping = now.timestamp() - config["last_request_time"]
+        last_ping_str = last_ping.strftime("%Y-%m-%d %H:%M:%S")
+        time_since_str = format_duration(time_since_ping)
+    else:
+        last_ping_str = "Never"
+        time_since_str = "N/A"
+    
+    status = "🟢 Online" if config["is_power_on"] else "🔴 Offline"
+    status_color = "#4CAF50" if config["is_power_on"] else "#f44336"
+    
+    # Get daily stats
+    stats = get_daily_stats(channel_id, config["timezone"])
+    if stats:
+        uptime_str = format_duration(stats["uptime"])
+        downtime_str = format_duration(stats["downtime"])
+        outages = stats["outages"]
+    else:
+        uptime_str = "N/A"
+        downtime_str = "N/A"
+        outages = 0
+    
+    # Get channel name
+    try:
+        if telegram_app:
+            chat = await telegram_app.bot.get_chat(channel_id)
+            if chat.username:
+                channel_name = f"@{chat.username}"
+            elif chat.title:
+                channel_name = chat.title
+            else:
+                channel_name = f"Channel {channel_id}"
+        else:
+            channel_name = f"Channel {channel_id}"
+    except Exception:
+        channel_name = f"Channel {channel_id}"
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>{channel_name} - Power Status</title>
+        <style>
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                max-width: 800px;
+                margin: 0 auto;
+                padding: 20px;
+                background: #f5f5f5;
+            }}
+            .card {{
+                background: white;
+                border-radius: 8px;
+                padding: 20px;
+                margin-bottom: 20px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }}
+            h1 {{
+                margin: 0 0 10px 0;
+                color: #333;
+            }}
+            .status {{
+                font-size: 48px;
+                font-weight: bold;
+                color: {status_color};
+                margin: 20px 0;
+            }}
+            .info {{
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 15px;
+                margin-top: 20px;
+            }}
+            .info-item {{
+                padding: 15px;
+                background: #f9f9f9;
+                border-radius: 4px;
+            }}
+            .info-label {{
+                font-size: 12px;
+                color: #666;
+                text-transform: uppercase;
+                margin-bottom: 5px;
+            }}
+            .info-value {{
+                font-size: 20px;
+                font-weight: bold;
+                color: #333;
+            }}
+            .footer {{
+                text-align: center;
+                color: #999;
+                font-size: 12px;
+                margin-top: 20px;
+            }}
+            @media (max-width: 600px) {{
+                .info {{
+                    grid-template-columns: 1fr;
+                }}
+            }}
+        </style>
+        <meta http-equiv="refresh" content="30">
+    </head>
+    <body>
+        <div class="card">
+            <h1>{channel_name}</h1>
+            <div class="status">{status}</div>
+            <div style="color: #666;">Last ping: {last_ping_str} ({time_since_str} ago)</div>
+        </div>
+        
+        <div class="card">
+            <h2 style="margin-top: 0;">Today's Statistics</h2>
+            <div class="info">
+                <div class="info-item">
+                    <div class="info-label">Uptime</div>
+                    <div class="info-value" style="color: #4CAF50;">{uptime_str}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Downtime</div>
+                    <div class="info-value" style="color: #f44336;">{downtime_str}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Outages</div>
+                    <div class="info-value">{outages}</div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label">Timezone</div>
+                    <div class="info-value" style="font-size: 16px;">{config["timezone"]}</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="footer">
+            Auto-refreshes every 30 seconds • Powered by Light Status Bot
+        </div>
+    </body>
+    </html>
+    """
+    
+    return web.Response(text=html, content_type='text/html')
+
 async def handle_ping(request):
     api_key = request.query.get('channel_key')
     if not api_key:
@@ -1147,6 +1311,7 @@ def main():
     
     # Start HTTP server
     app = web.Application()
+    app.router.add_get('/status/{channel_id}', handle_dashboard)
     app.router.add_get('/channelPing', handle_ping)
     
     # Run both servers

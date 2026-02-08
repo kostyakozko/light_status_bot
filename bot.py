@@ -31,6 +31,15 @@ def init_db():
             last_status_change REAL
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            channel_id INTEGER,
+            status INTEGER,
+            timestamp REAL,
+            FOREIGN KEY (channel_id) REFERENCES channels(channel_id) ON DELETE CASCADE
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -57,8 +66,14 @@ def update_last_request(api_key, timestamp):
 
 def update_power_status(api_key, is_on, timestamp):
     conn = sqlite3.connect(DB_FILE)
-    conn.execute("UPDATE channels SET is_power_on = ?, last_status_change = ? WHERE api_key = ?", 
-                 (1 if is_on else 0, timestamp, api_key))
+    cur = conn.execute("SELECT channel_id FROM channels WHERE api_key = ?", (api_key,))
+    row = cur.fetchone()
+    if row:
+        channel_id = row[0]
+        conn.execute("UPDATE channels SET is_power_on = ?, last_status_change = ? WHERE api_key = ?", 
+                     (1 if is_on else 0, timestamp, api_key))
+        conn.execute("INSERT INTO history (channel_id, status, timestamp) VALUES (?, ?, ?)",
+                     (channel_id, 1 if is_on else 0, timestamp))
     conn.commit()
     conn.close()
 
@@ -137,6 +152,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/replace_key <channel_id> <key> - замінити ключ на свій\n"
         "/remove_channel <channel_id> - видалити канал\n"
         "/transfer <channel_id> <user_id> - передати власність\n"
+        "/history <channel_id> [кількість] - історія змін статусу\n"
         "/status <channel_id> - перевірити статус\n"
         "/status - показати всі канали\n\n"
         "Перешліть повідомлення з каналу для отримання ID."
@@ -383,6 +399,57 @@ async def transfer_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ Власника каналу передано користувачу {new_owner_id}")
     except ValueError:
         await update.message.reply_text("❌ Невірний ID каналу або користувача")
+
+async def history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Використання: /history <channel_id> [кількість]")
+        return
+    
+    try:
+        channel_id = int(context.args[0])
+        limit = int(context.args[1]) if len(context.args) > 1 else 10
+        user_id = update.message.from_user.id
+        
+        if not is_owner(channel_id, user_id):
+            await update.message.reply_text("❌ Ви не є власником цього каналу")
+            return
+        
+        config = get_channel_config(channel_id)
+        if config["owner_id"] is None:
+            await update.message.reply_text("❌ Канал не налаштований")
+            return
+        
+        conn = sqlite3.connect(DB_FILE)
+        rows = conn.execute(
+            "SELECT status, timestamp FROM history WHERE channel_id = ? ORDER BY timestamp DESC LIMIT ?",
+            (channel_id, limit)
+        ).fetchall()
+        conn.close()
+        
+        if not rows:
+            await update.message.reply_text("📜 Історія порожня")
+            return
+        
+        tz = pytz.timezone(config["timezone"])
+        msg = f"📜 Історія (останні {len(rows)}):\n\n"
+        
+        prev_timestamp = None
+        for status, timestamp in rows:
+            dt = datetime.fromtimestamp(timestamp, tz)
+            status_emoji = "🟢" if status == 1 else "🔴"
+            status_text = "з'явилося" if status == 1 else "зникло"
+            
+            duration_text = ""
+            if prev_timestamp:
+                duration = prev_timestamp - timestamp
+                duration_text = f" (тривало {format_duration(duration)})"
+            
+            msg += f"{status_emoji} {dt.strftime('%d.%m %H:%M')} Світло {status_text}{duration_text}\n"
+            prev_timestamp = timestamp
+        
+        await update.message.reply_text(msg)
+    except ValueError:
+        await update.message.reply_text("❌ Невірний ID каналу або кількість")
 
 async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
@@ -641,6 +708,7 @@ def main():
     telegram_app.add_handler(CommandHandler("replace_key", replace_key_cmd))
     telegram_app.add_handler(CommandHandler("remove_channel", remove_channel_cmd))
     telegram_app.add_handler(CommandHandler("transfer", transfer_cmd))
+    telegram_app.add_handler(CommandHandler("history", history_cmd))
     telegram_app.add_handler(CommandHandler("status", status_cmd))
     telegram_app.add_handler(MessageHandler(filters.FORWARDED & filters.ChatType.PRIVATE, handle_forwarded))
     telegram_app.add_handler(ChatMemberHandler(handle_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))

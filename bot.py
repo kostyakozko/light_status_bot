@@ -31,12 +31,6 @@ def init_db():
             last_status_change REAL
         )
     """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS user_sessions (
-            user_id INTEGER PRIMARY KEY,
-            active_channel_id INTEGER
-        )
-    """)
     conn.commit()
     conn.close()
 
@@ -100,20 +94,6 @@ def create_channel(channel_id, owner_id):
 def is_owner(channel_id, user_id):
     config = get_channel_config(channel_id)
     return config["owner_id"] is None or config["owner_id"] == user_id
-
-def set_user_active_channel(user_id, channel_id):
-    conn = sqlite3.connect(DB_FILE)
-    conn.execute("INSERT OR REPLACE INTO user_sessions (user_id, active_channel_id) VALUES (?, ?)", 
-                 (user_id, channel_id))
-    conn.commit()
-    conn.close()
-
-def get_user_active_channel(user_id):
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.execute("SELECT active_channel_id FROM user_sessions WHERE user_id = ?", (user_id,))
-    row = cur.fetchone()
-    conn.close()
-    return row[0] if row else None
 
 def set_timezone(channel_id, tz):
     conn = sqlite3.connect(DB_FILE)

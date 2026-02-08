@@ -116,6 +116,56 @@ def set_timezone(channel_id, tz):
     conn.commit()
     conn.close()
 
+def get_daily_stats(channel_id, timezone):
+    """Calculate today's uptime, downtime, and outage count"""
+    tz = pytz.timezone(timezone)
+    now = datetime.now(tz)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    now_ts = now.timestamp()
+    
+    conn = sqlite3.connect(DB_FILE)
+    rows = conn.execute(
+        "SELECT status, timestamp FROM history WHERE channel_id = ? AND timestamp >= ? ORDER BY timestamp ASC",
+        (channel_id, today_start)
+    ).fetchall()
+    conn.close()
+    
+    if not rows:
+        return None
+    
+    uptime = 0
+    downtime = 0
+    outages = 0
+    
+    prev_status = rows[0][0]
+    prev_time = today_start
+    
+    for status, timestamp in rows:
+        duration = timestamp - prev_time
+        if prev_status == 1:
+            uptime += duration
+        else:
+            downtime += duration
+        
+        if status == 0 and prev_status == 1:
+            outages += 1
+        
+        prev_status = status
+        prev_time = timestamp
+    
+    # Add time from last event to now
+    duration = now_ts - prev_time
+    if prev_status == 1:
+        uptime += duration
+    else:
+        downtime += duration
+    
+    return {
+        "uptime": uptime,
+        "downtime": downtime,
+        "outages": outages
+    }
+
 def format_duration(seconds):
     """Format duration in Ukrainian"""
     if seconds < 60:
@@ -630,6 +680,13 @@ async def handle_ping(request):
         
         message = f"🟢 {time_str} Світло з'явилося\n🕓 Його не було {duration_text}"
         
+        # Add daily stats
+        stats = get_daily_stats(channel["channel_id"], channel["timezone"])
+        if stats:
+            uptime_str = format_duration(stats["uptime"])
+            downtime_str = format_duration(stats["downtime"])
+            message += f"\n\n📊 Сьогодні: {uptime_str} онлайн, {downtime_str} офлайн ({stats['outages']} відключень)"
+        
         if telegram_app:
             await telegram_app.bot.send_message(
                 chat_id=channel["channel_id"],
@@ -670,6 +727,13 @@ async def check_timeouts():
                 time_str = datetime.fromtimestamp(last_req, tz).strftime("%H:%M")
                 
                 message = f"🔴 {time_str} Світло зникло\n🕓 Воно було {duration_text}"
+                
+                # Add daily stats
+                stats = get_daily_stats(channel_id, tz_str)
+                if stats:
+                    uptime_str = format_duration(stats["uptime"])
+                    downtime_str = format_duration(stats["downtime"])
+                    message += f"\n\n📊 Сьогодні: {uptime_str} онлайн, {downtime_str} офлайн ({stats['outages']} відключень)"
                 
                 if telegram_app:
                     try:

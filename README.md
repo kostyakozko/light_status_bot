@@ -108,6 +108,8 @@ GET /channelPing?channel_key=YOUR_KEY
 ```
 Device endpoint to report "power is on" status.
 
+**Response:** `OK` (200)
+
 ### Built-in Status Page
 ```
 GET /status/{channel_id}
@@ -115,12 +117,54 @@ GET /status/@channelname
 ```
 Simple HTML page showing current status and today's statistics.
 
+**Example:** `https://YOUR_DOMAIN/status/-1001234567890`
+
 ### Data API
+
+#### Get All Channels
 ```
 GET /api/channels
+```
+Returns list of all configured channels with current status.
+
+**Response:**
+```json
+[
+  {
+    "channel_id": -1001234567890,
+    "channel_name": "@channelname",
+    "is_power_on": true,
+    "last_request_time": 1707423456.789,
+    "timezone": "Europe/Kiev"
+  }
+]
+```
+
+#### Get Channel History
+```
 GET /api/history?channel_id={id}&days={n}
 ```
-JSON endpoints for external dashboards and integrations.
+Returns status change history for specified channel.
+
+**Parameters:**
+- `channel_id` (required) - Channel ID
+- `days` (optional) - Number of days to retrieve (default: 7)
+
+**Response:**
+```json
+[
+  {
+    "timestamp": 1707423456.789,
+    "status": 1
+  },
+  {
+    "timestamp": 1707419856.789,
+    "status": 0
+  }
+]
+```
+
+**Status values:** `1` = power ON, `0` = power OFF
 
 ## How it works
 

@@ -521,17 +521,17 @@ async def history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for status, timestamp in rows:
         dt = datetime.fromtimestamp(timestamp, tz)
         status_emoji = "🟢" if status == 1 else "🔴"
-            status_text = "з'явилося" if status == 1 else "зникло"
-            
-            duration_text = ""
-            if prev_timestamp:
-                duration = prev_timestamp - timestamp
-                duration_text = f" (тривало {format_duration(duration)})"
-            
-            msg += f"{status_emoji} {dt.strftime('%d.%m %H:%M')} Світло {status_text}{duration_text}\n"
-            prev_timestamp = timestamp
+        status_text = "з'явилося" if status == 1 else "зникло"
         
-        await update.message.reply_text(msg)
+        duration_text = ""
+        if prev_timestamp:
+            duration = prev_timestamp - timestamp
+            duration_text = f" (тривало {format_duration(duration)})"
+        
+        msg += f"{status_emoji} {dt.strftime('%d.%m %H:%M')} Світло {status_text}{duration_text}\n"
+        prev_timestamp = timestamp
+    
+    await update.message.reply_text(msg)
 
 async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id

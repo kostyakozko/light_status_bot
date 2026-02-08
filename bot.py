@@ -346,7 +346,19 @@ async def list_keys_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     msg = f"🔑 Ваші канали та ключі ({len(channels)}):\n\n"
     for channel_id, api_key in channels:
-        msg += f"📺 Канал: `{channel_id}`\n"
+        # Try to get channel name
+        try:
+            chat = await context.bot.get_chat(channel_id)
+            if chat.username:
+                channel_name = f"@{chat.username}"
+            elif chat.title:
+                channel_name = chat.title
+            else:
+                channel_name = str(channel_id)
+            msg += f"📺 Канал: {channel_name} (`{channel_id}`)\n"
+        except Exception:
+            msg += f"📺 Канал: `{channel_id}`\n"
+        
         msg += f"🔑 Ключ: `{api_key}`\n\n"
     
     msg += f"Використання:\n`curl http://YOUR_SERVER:{HTTP_PORT}/channelPing?channel_key=YOUR_KEY`"

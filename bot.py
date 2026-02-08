@@ -831,36 +831,50 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         no_data = []
         
         for channel_id, timezone in channels:
+            # Get channel name
+            try:
+                chat = await context.bot.get_chat(channel_id)
+                if chat.username:
+                    channel_name = f"@{chat.username}"
+                elif chat.title:
+                    channel_name = chat.title
+                else:
+                    channel_name = str(channel_id)
+            except Exception:
+                channel_name = str(channel_id)
+            
             config = get_channel_config(channel_id)
             if config["last_request_time"] is None:
-                no_data.append((channel_id, timezone))
+                no_data.append((channel_name, channel_id, timezone))
             else:
                 tz = pytz.timezone(timezone)
                 now = datetime.now(tz).timestamp()
                 time_since = now - config["last_request_time"]
                 if config["is_power_on"]:
-                    online.append((channel_id, timezone, time_since))
+                    online.append((channel_name, channel_id, timezone, time_since))
                 else:
-                    offline.append((channel_id, timezone, time_since))
+                    offline.append((channel_name, channel_id, timezone, time_since))
         
         msg = f"📊 Ваші канали ({len(channels)} всього)\n\n"
         
         if online:
             msg += f"🟢 Онлайн ({len(online)}):\n"
-            for channel_id, tz, time_since in online:
-                msg += f"  {channel_id} ({tz})\n  └ {format_duration(time_since)} тому\n"
+            for channel_name, channel_id, tz, time_since in online:
+                msg += f"  {channel_name} (`{channel_id}`)\n"
+                msg += f"  └ {format_duration(time_since)} тому • {tz}\n"
             msg += "\n"
         
         if offline:
             msg += f"🔴 Офлайн ({len(offline)}):\n"
-            for channel_id, tz, time_since in offline:
-                msg += f"  {channel_id} ({tz})\n  └ {format_duration(time_since)} тому\n"
+            for channel_name, channel_id, tz, time_since in offline:
+                msg += f"  {channel_name} (`{channel_id}`)\n"
+                msg += f"  └ {format_duration(time_since)} тому • {tz}\n"
             msg += "\n"
         
         if no_data:
             msg += f"⚠️ Немає даних ({len(no_data)}):\n"
-            for channel_id, tz in no_data:
-                msg += f"  {channel_id} ({tz})\n"
+            for channel_name, channel_id, tz in no_data:
+                msg += f"  {channel_name} (`{channel_id}`) • {tz}\n"
         
         await update.message.reply_text(msg)
         return

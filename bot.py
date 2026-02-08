@@ -135,15 +135,25 @@ def format_duration(seconds):
         return f"{hours}год {mins}хв" if mins > 0 else f"{hours}год"
 
 # Telegram bot commands
+def get_channel_id_from_arg(arg):
+    """Convert channel username or ID to channel ID"""
+    if arg.startswith('@'):
+        # Username - we'll need to resolve it
+        # For now, return None and let Telegram API handle it
+        return None
+    try:
+        return int(arg)
+    except ValueError:
+        return None
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Команди:\n"
         "/create_channel <channel_id> - створити новий канал (генерує ключ)\n"
         "/import_channel <channel_id> <key> - імпортувати з існуючим ключем\n"
-        "/set_channel <channel_id> - вибрати активний канал\n"
-        "/get_key - отримати API ключ\n"
-        "/set_timezone <timezone> - встановити часовий пояс\n"
-        "/status - перевірити статус\n\n"
+        "/get_key <channel_id> - отримати API ключ\n"
+        "/set_timezone <channel_id> <timezone> - встановити часовий пояс\n"
+        "/status <channel_id> - перевірити статус\n\n"
         "Перешліть повідомлення з каналу для отримання ID."
     )
 
@@ -163,7 +173,6 @@ async def create_channel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         api_key = create_channel(channel_id, user_id)
         if api_key:
-            set_user_active_channel(user_id, channel_id)
             await update.message.reply_text(
                 f"✅ Канал створено!\n\n"
                 f"🔑 API ключ: `{api_key}`\n\n"
@@ -196,7 +205,6 @@ async def import_channel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
             conn.execute("INSERT INTO channels (channel_id, owner_id, api_key) VALUES (?, ?, ?)", 
                          (channel_id, user_id, api_key))
             conn.commit()
-            set_user_active_channel(user_id, channel_id)
             await update.message.reply_text(
                 f"✅ Канал імпортовано!\n\n"
                 f"🔑 API ключ: `{api_key}`\n\n"
@@ -210,9 +218,9 @@ async def import_channel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except ValueError:
         await update.message.reply_text("❌ Невірний ID каналу")
 
-async def set_channel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def get_key_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text("Використання: /set_channel <channel_id>")
+        await update.message.reply_text("Використання: /get_key <channel_id>")
         return
     
     try:
@@ -223,95 +231,94 @@ async def set_channel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Ви не є власником цього каналу")
             return
         
-        set_user_active_channel(user_id, channel_id)
-        await update.message.reply_text(f"✅ Активний канал: {channel_id}")
+        config = get_channel_config(channel_id)
+        if config["owner_id"] is None:
+            await update.message.reply_text("❌ Канал не налаштований")
+            return
+        
+        await update.message.reply_text(
+            f"🔑 API ключ: `{config['api_key']}`\n\n"
+            f"Використовуйте:\n"
+            f"`curl http://YOUR_SERVER:{HTTP_PORT}/channelPing?channel_key={config['api_key']}`"
+        )
     except ValueError:
         await update.message.reply_text("❌ Невірний ID каналу")
 
-async def get_key_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    channel_id = get_user_active_channel(user_id)
-    
-    if not channel_id:
-        await update.message.reply_text("❌ Спочатку виберіть канал: /set_channel <channel_id>")
-        return
-    
-    if not is_owner(channel_id, user_id):
-        await update.message.reply_text("❌ Ви не є власником цього каналу")
-        return
-    
-    config = get_channel_config(channel_id)
-    await update.message.reply_text(
-        f"🔑 API ключ: `{config['api_key']}`\n\n"
-        f"Використовуйте:\n"
-        f"`curl http://YOUR_SERVER:{HTTP_PORT}/channelPing?channel_key={config['api_key']}`"
-    )
-
 async def set_timezone_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    channel_id = get_user_active_channel(user_id)
-    
-    if not channel_id:
-        await update.message.reply_text("❌ Спочатку виберіть канал: /set_channel <channel_id>")
-        return
-    
-    if not is_owner(channel_id, user_id):
-        await update.message.reply_text("❌ Ви не є власником цього каналу")
-        return
-    
-    if not context.args:
+    if len(context.args) < 2:
         await update.message.reply_text(
-            "Використання: /set_timezone <timezone>\n\n"
+            "Використання: /set_timezone <channel_id> <timezone>\n\n"
             "Приклади:\n"
-            "Europe/Kiev\n"
-            "Europe/Warsaw\n"
-            "America/New_York\n\n"
+            "/set_timezone -1001234567890 Europe/Kiev\n"
+            "/set_timezone -1001234567890 Europe/Warsaw\n"
+            "/set_timezone -1001234567890 America/New_York\n\n"
             "Повний список: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones"
         )
         return
     
-    tz = context.args[0]
-    if tz not in pytz.all_timezones:
-        await update.message.reply_text("❌ Невірний часовий пояс")
-        return
-    
-    set_timezone(channel_id, tz)
-    await update.message.reply_text(f"✅ Часовий пояс встановлено: {tz}")
+    try:
+        channel_id = int(context.args[0])
+        tz = context.args[1]
+        user_id = update.message.from_user.id
+        
+        if not is_owner(channel_id, user_id):
+            await update.message.reply_text("❌ Ви не є власником цього каналу")
+            return
+        
+        config = get_channel_config(channel_id)
+        if config["owner_id"] is None:
+            await update.message.reply_text("❌ Канал не налаштований")
+            return
+        
+        if tz not in pytz.all_timezones:
+            await update.message.reply_text("❌ Невірний часовий пояс")
+            return
+        
+        set_timezone(channel_id, tz)
+        await update.message.reply_text(f"✅ Часовий пояс встановлено: {tz}")
+    except ValueError:
+        await update.message.reply_text("❌ Невірний ID каналу")
 
 async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    channel_id = get_user_active_channel(user_id)
-    
-    if not channel_id:
-        await update.message.reply_text("❌ Спочатку виберіть канал: /set_channel <channel_id>")
+    if not context.args:
+        await update.message.reply_text("Використання: /status <channel_id>")
         return
     
-    if not is_owner(channel_id, user_id):
-        await update.message.reply_text("❌ Ви не є власником цього каналу")
-        return
-    
-    config = get_channel_config(channel_id)
-    
-    if config["last_request_time"] is None:
-        await update.message.reply_text("📊 Статус: 🔴 світла немає\n\n⚠️ Ще не було жодного запиту")
-        return
-    
-    tz = pytz.timezone(config["timezone"])
-    now = datetime.now(tz).timestamp()
-    last_req = config["last_request_time"]
-    time_since = now - last_req
-    
-    status_emoji = "🟢" if config["is_power_on"] else "🔴"
-    status_text = "світло є" if config["is_power_on"] else "світла немає"
-    
-    msg = f"📊 Статус: {status_emoji} {status_text}\n\n"
-    msg += f"📶 Останній запит: {format_duration(time_since)} тому\n"
-    
-    if config["last_status_change"]:
-        status_duration = now - config["last_status_change"]
-        msg += f"🔄 Статус змінено: {format_duration(status_duration)} тому"
-    
-    await update.message.reply_text(msg)
+    try:
+        channel_id = int(context.args[0])
+        user_id = update.message.from_user.id
+        
+        if not is_owner(channel_id, user_id):
+            await update.message.reply_text("❌ Ви не є власником цього каналу")
+            return
+        
+        config = get_channel_config(channel_id)
+        if config["owner_id"] is None:
+            await update.message.reply_text("❌ Канал не налаштований")
+            return
+        
+        if config["last_request_time"] is None:
+            await update.message.reply_text("📊 Статус: 🔴 світла немає\n\n⚠️ Ще не було жодного запиту")
+            return
+        
+        tz = pytz.timezone(config["timezone"])
+        now = datetime.now(tz).timestamp()
+        last_req = config["last_request_time"]
+        time_since = now - last_req
+        
+        status_emoji = "🟢" if config["is_power_on"] else "🔴"
+        status_text = "світло є" if config["is_power_on"] else "світла немає"
+        
+        msg = f"📊 Статус: {status_emoji} {status_text}\n\n"
+        msg += f"📶 Останній запит: {format_duration(time_since)} тому\n"
+        
+        if config["last_status_change"]:
+            status_duration = now - config["last_status_change"]
+            msg += f"🔄 Статус змінено: {format_duration(status_duration)} тому"
+        
+        await update.message.reply_text(msg)
+    except ValueError:
+        await update.message.reply_text("❌ Невірний ID каналу")
 
 async def handle_forwarded(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
@@ -477,7 +484,6 @@ def main():
     telegram_app.add_handler(CommandHandler("start", start))
     telegram_app.add_handler(CommandHandler("create_channel", create_channel_cmd))
     telegram_app.add_handler(CommandHandler("import_channel", import_channel_cmd))
-    telegram_app.add_handler(CommandHandler("set_channel", set_channel_cmd))
     telegram_app.add_handler(CommandHandler("get_key", get_key_cmd))
     telegram_app.add_handler(CommandHandler("set_timezone", set_timezone_cmd))
     telegram_app.add_handler(CommandHandler("status", status_cmd))

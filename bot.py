@@ -961,7 +961,7 @@ async def handle_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TY
             # Check current status
             if config["last_request_time"] is None:
                 # No requests yet - assume offline
-                message = f"🔴 {time_str} Світло зникло\n🕓 Статус невідомий (бот щойно доданий)"
+                message = f"🔴 {time_str} Електрохарчування відсутнє\n🕓 Статус невідомий (бот щойно доданий)"
             else:
                 now_ts = now.timestamp()
                 time_since = now_ts - config["last_request_time"]
@@ -969,10 +969,10 @@ async def handle_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TY
                 
                 if time_since > timeout_seconds:
                     # Offline
-                    message = f"🔴 {time_str} Світло зникло\n🕓 Останній запит: {format_duration(time_since)} тому"
+                    message = f"🔴 {time_str} Електрохарчування відсутнє\n🕓 Останній запит: {format_duration(time_since)} тому"
                 else:
                     # Online
-                    message = f"🟢 {time_str} Світло є\n🕓 Останній запит: {format_duration(time_since)} тому"
+                    message = f"🟢 {time_str} Електрохарчування є\n🕓 Останній запит: {format_duration(time_since)} тому"
             
             try:
                 await context.bot.send_message(chat_id=channel_id, text=message)
@@ -1191,7 +1191,7 @@ async def handle_ping(request):
         tz = pytz.timezone(channel["timezone"])
         time_str = datetime.fromtimestamp(now, tz).strftime("%H:%M")
         
-        message = f"🟢 {time_str} Світло з'явилося\n🕓 Його не було {duration_text}"
+        message = f"🟢 {time_str} Електрохарчування відновлено\n🕓 Його не було {duration_text}"
         
         # Add daily stats
         stats = get_daily_stats(channel["channel_id"], channel["timezone"])
@@ -1257,7 +1257,7 @@ async def check_timeouts():
                 tz = pytz.timezone(tz_str)
                 time_str = datetime.fromtimestamp(last_req, tz).strftime("%H:%M")
                 
-                message = f"🔴 {time_str} Світло зникло\n🕓 Воно було {duration_text}"
+                message = f"🔴 {time_str} Електрохарчування відсутнє\n🕓 Воно було {duration_text}"
                 
                 # Add daily stats
                 stats = get_daily_stats(channel_id, tz_str)

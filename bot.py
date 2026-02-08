@@ -293,7 +293,7 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     config = get_channel_config(channel_id)
     
     if config["last_request_time"] is None:
-        await update.message.reply_text("📊 Ще не було жодного запиту")
+        await update.message.reply_text("📊 Статус: 🔴 світла немає\n\n⚠️ Ще не було жодного запиту")
         return
     
     tz = pytz.timezone(config["timezone"])
@@ -326,6 +326,49 @@ async def handle_forwarded(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"ID каналу: {channel_id}\n\n"
                 f"Використайте: /create_channel {channel_id}"
             )
+
+async def handle_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle bot being added to channel"""
+    if not update.my_chat_member:
+        return
+    
+    chat = update.my_chat_member.chat
+    if chat.type != "channel":
+        return
+    
+    new_status = update.my_chat_member.new_chat_member.status
+    
+    # Bot was added to channel
+    if new_status in ["administrator", "member"]:
+        channel_id = chat.id
+        config = get_channel_config(channel_id)
+        
+        # Only post if channel is configured
+        if config["owner_id"] is not None:
+            tz = pytz.timezone(config["timezone"])
+            now = datetime.now(tz)
+            time_str = now.strftime("%H:%M")
+            
+            # Check current status
+            if config["last_request_time"] is None:
+                # No requests yet - assume offline
+                message = f"🔴 {time_str} Світло зникло\n🕓 Статус невідомий (бот щойно доданий)"
+            else:
+                now_ts = now.timestamp()
+                time_since = now_ts - config["last_request_time"]
+                timeout_seconds = TIMEOUT_MINUTES * 60
+                
+                if time_since > timeout_seconds:
+                    # Offline
+                    message = f"🔴 {time_str} Світло зникло\n🕓 Останній запит: {format_duration(time_since)} тому"
+                else:
+                    # Online
+                    message = f"🟢 {time_str} Світло є\n🕓 Останній запит: {format_duration(time_since)} тому"
+            
+            try:
+                await context.bot.send_message(chat_id=channel_id, text=message)
+            except Exception as e:
+                print(f"Error sending initial status to {channel_id}: {e}")
 
 # HTTP server for ping requests
 telegram_app = None
@@ -439,6 +482,7 @@ def main():
     telegram_app.add_handler(CommandHandler("set_timezone", set_timezone_cmd))
     telegram_app.add_handler(CommandHandler("status", status_cmd))
     telegram_app.add_handler(MessageHandler(filters.FORWARDED & filters.ChatType.PRIVATE, handle_forwarded))
+    telegram_app.add_handler(MessageHandler(filters.ChatMemberUpdated.MY_CHAT_MEMBER, handle_my_chat_member))
     
     # Start HTTP server
     app = web.Application()

@@ -976,15 +976,28 @@ telegram_app = None
 
 async def handle_dashboard(request):
     """Simple public dashboard for a channel"""
-    channel_id = request.match_info.get('channel_id')
+    channel_input = request.match_info.get('channel_id') or request.match_info.get('username')
     
-    if not channel_id:
-        return web.Response(text="Missing channel_id", status=400)
+    if not channel_input:
+        return web.Response(text="Missing channel_id or username", status=400)
     
-    try:
-        channel_id = int(channel_id)
-    except ValueError:
-        return web.Response(text="Invalid channel_id", status=400)
+    # Try to resolve username or parse ID
+    if channel_input.startswith('@') or not channel_input.lstrip('-').isdigit():
+        # It's a username, resolve it
+        try:
+            if telegram_app:
+                chat = await telegram_app.bot.get_chat(channel_input if channel_input.startswith('@') else f"@{channel_input}")
+                channel_id = chat.id
+            else:
+                return web.Response(text="Bot not ready", status=503)
+        except Exception:
+            return web.Response(text="Channel not found", status=404)
+    else:
+        # It's a numeric ID
+        try:
+            channel_id = int(channel_input)
+        except ValueError:
+            return web.Response(text="Invalid channel_id", status=400)
     
     config = get_channel_config(channel_id)
     if config["owner_id"] is None:
@@ -1311,6 +1324,7 @@ def main():
     
     # Start HTTP server
     app = web.Application()
+    app.router.add_get('/status/@{username}', handle_dashboard)
     app.router.add_get('/status/{channel_id}', handle_dashboard)
     app.router.add_get('/channelPing', handle_ping)
     

@@ -224,6 +224,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/create_channel <channel_id|@username> - створити новий канал\n"
         "/import_channel <channel_id|@username> <key> - імпортувати з ключем\n"
         "/get_key <channel_id|@username> - отримати API ключ\n"
+        "/list_keys - показати всі канали та ключі\n"
         "/set_timezone <channel_id|@username> <timezone> - встановити часовий пояс\n"
         "/regenerate_key <channel_id|@username> - згенерувати новий ключ\n"
         "/replace_key <channel_id|@username> <key> - замінити ключ\n"
@@ -327,6 +328,30 @@ async def get_key_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except ValueError:
         await update.message.reply_text("❌ Невірний ID каналу")
+
+async def list_keys_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show all channels and their keys for the user"""
+    user_id = update.message.from_user.id
+    
+    conn = sqlite3.connect(DB_FILE)
+    channels = conn.execute(
+        "SELECT channel_id, api_key FROM channels WHERE owner_id = ? ORDER BY channel_id",
+        (user_id,)
+    ).fetchall()
+    conn.close()
+    
+    if not channels:
+        await update.message.reply_text("❌ У вас немає налаштованих каналів")
+        return
+    
+    msg = f"🔑 Ваші канали та ключі ({len(channels)}):\n\n"
+    for channel_id, api_key in channels:
+        msg += f"📺 Канал: `{channel_id}`\n"
+        msg += f"🔑 Ключ: `{api_key}`\n\n"
+    
+    msg += f"Використання:\n`curl http://YOUR_SERVER:{HTTP_PORT}/channelPing?channel_key=YOUR_KEY`"
+    
+    await update.message.reply_text(msg)
 
 async def set_timezone_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) < 2:
@@ -1078,6 +1103,7 @@ def main():
     telegram_app.add_handler(CommandHandler("create_channel", create_channel_cmd))
     telegram_app.add_handler(CommandHandler("import_channel", import_channel_cmd))
     telegram_app.add_handler(CommandHandler("get_key", get_key_cmd))
+    telegram_app.add_handler(CommandHandler("list_keys", list_keys_cmd))
     telegram_app.add_handler(CommandHandler("set_timezone", set_timezone_cmd))
     telegram_app.add_handler(CommandHandler("regenerate_key", regenerate_key_cmd))
     telegram_app.add_handler(CommandHandler("replace_key", replace_key_cmd))

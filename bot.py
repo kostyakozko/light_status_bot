@@ -7,7 +7,7 @@ import pytz
 from datetime import datetime, timedelta
 from aiohttp import web
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, ChatMemberHandler, filters, ContextTypes
 
 # Database setup
 DB_DIR = os.path.expanduser("~/light_status_data")
@@ -488,7 +488,7 @@ def main():
     telegram_app.add_handler(CommandHandler("set_timezone", set_timezone_cmd))
     telegram_app.add_handler(CommandHandler("status", status_cmd))
     telegram_app.add_handler(MessageHandler(filters.FORWARDED & filters.ChatType.PRIVATE, handle_forwarded))
-    telegram_app.add_handler(MessageHandler(filters.ChatMemberUpdated.MY_CHAT_MEMBER, handle_my_chat_member))
+    telegram_app.add_handler(ChatMemberHandler(handle_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
     
     # Start HTTP server
     app = web.Application()

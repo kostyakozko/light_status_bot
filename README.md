@@ -1,12 +1,18 @@
 # Light Status Bot
 
-Telegram bot for monitoring power/light status via HTTP requests.
+Telegram bot for monitoring power/light status via HTTP requests with web dashboard.
 
 ## Features
 
 - Monitor multiple channels from one Telegram account
 - HTTP endpoint for status updates (`/channelPing?channel_key=KEY`)
+- **Public web dashboard** for real-time status and statistics
+- **Grafana integration** for detailed charts and analytics
 - Automatic status detection (5 min timeout)
+- Daily statistics with uptime/downtime tracking
+- Personal DM notifications
+- Pause/resume monitoring
+- History export (CSV/JSON)
 - Configurable timezone per channel
 - Channel ownership management
 - Compatible with original svitlobot API keys
@@ -48,13 +54,32 @@ curl http://YOUR_SERVER:8080/channelPing?channel_key=AWAHFETGAL
 Both bots will receive updates for redundancy!
 
 ### Commands
+
+**Channel Management:**
 - `/start` - show available commands
 - `/create_channel <id>` - create new channel (generates key)
 - `/import_channel <id> <key>` - import with existing key
-- `/set_channel <id>` - select active channel
-- `/get_key` - get API key
-- `/set_timezone <tz>` - set timezone (e.g., Europe/Kiev)
-- `/status` - check current status
+- `/set_channel <id>` - select active channel for configuration
+- `/remove_channel [id]` - delete channel configuration
+- `/transfer <user_id> [channel_id]` - transfer ownership
+
+**Monitoring:**
+- `/status [channel_id]` - check current status
+- `/get_key [channel_id]` - get API key
+- `/list_keys` - list all your channels and keys
+- `/pause [channel_id]` - pause monitoring (no timeout messages)
+- `/resume [channel_id]` - resume monitoring
+- `/stop [channel_id]` - alias for pause
+
+**Configuration:**
+- `/set_timezone <tz> [channel_id]` - set timezone (e.g., Europe/Kiev)
+- `/notify [channel_id]` - toggle DM notifications for status changes
+
+**History & Export:**
+- `/history [channel_id]` - show recent status changes
+- `/export <format> [channel_id]` - export history (csv or json)
+
+**Note:** Most commands accept optional `channel_id` or `@username` parameter. If omitted, uses currently selected channel.
 
 ### Timezone Setup
 ```
@@ -65,23 +90,81 @@ Both bots will receive updates for redundancy!
 
 Full list: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
 
+## Web Dashboard
+
+### Public Status Page
+View real-time status and today's statistics without authentication:
+
+**URL formats:**
+- By channel ID: `http://141.148.245.165:8080/status/-1002147424649`
+- By username: `http://141.148.245.165:8080/status/@channelname`
+- By username (no @): `http://141.148.245.165:8080/status/channelname`
+
+**Features:**
+- Current status (🟢 Online / 🔴 Offline)
+- Last ping time
+- Today's uptime/downtime
+- Outage count
+- Auto-refreshes every 30 seconds
+
+### Grafana Analytics
+Detailed charts and historical data (requires authentication):
+
+**Access:** `http://141.148.245.165:3000`
+
+**Features:**
+- Daily/weekly/monthly/yearly charts
+- Custom time range queries
+- Multiple channel comparison
+- Advanced filtering and aggregation
+
+**Default credentials:** `admin` / `admin` (change on first login)
+
 ## How it works
 
 - Device sends HTTP requests while power is ON (every 1-2 minutes)
 - If no request for 5 minutes → bot posts "🔴 HH:MM Світло зникло"
 - When requests resume → bot posts "🟢 HH:MM Світло з'явилося"
-- Messages include time and duration in Ukrainian
+- Messages include time, duration, and daily statistics in Ukrainian
+- History is logged to SQLite database for analytics
+
+## Database Schema
+
+```sql
+-- Channel configuration
+channels: channel_id, owner_id, api_key, timezone, last_request_time, 
+          is_power_on, last_status_change, paused, channel_name
+
+-- Status change history
+history: id, channel_id, status, timestamp
+
+-- DM notification preferences
+notifications: user_id, channel_id, enabled
+```
 
 ## Deployment
 
-Bot runs on Oracle Cloud (same server as image bot).
+## Deployment
+
+**Server:** Oracle Cloud (141.148.245.165)
+**Services:**
+- `light-status-bot.service` - Telegram bot + HTTP server (port 8080)
+- `grafana-server.service` - Grafana analytics (port 3000)
+
+**Database:** `~/light_status_data/config.db` (SQLite)
+
 See deployment instructions in image bot's ORACLE_COMMANDS.md.
 
-## Future Improvements
+## Development
 
-See [GitHub Issues](https://github.com/kostyakozko/light_status_bot/issues) for planned features:
-- API key regeneration
-- Ownership transfer
-- Channel removal
-- Daily statistics
-- Web dashboard
+**Repository:** https://github.com/kostyakozko/light_status_bot
+
+**Tech stack:**
+- Python 3.11+ with python-telegram-bot
+- aiohttp for HTTP server
+- SQLite for data storage
+- Grafana for analytics
+
+## License
+
+MIT

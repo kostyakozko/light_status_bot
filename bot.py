@@ -323,186 +323,204 @@ async def set_timezone_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    try:
-        channel_id = int(context.args[0])
-        tz = context.args[1]
-        user_id = update.message.from_user.id
-        
-        if not is_owner(channel_id, user_id):
-            await update.message.reply_text("❌ Ви не є власником цього каналу")
-            return
-        
-        config = get_channel_config(channel_id)
-        if config["owner_id"] is None:
-            await update.message.reply_text("❌ Канал не налаштований")
-            return
-        
-        if tz not in pytz.all_timezones:
-            await update.message.reply_text("❌ Невірний часовий пояс")
-            return
-        
-        set_timezone(channel_id, tz)
-        await update.message.reply_text(f"✅ Часовий пояс встановлено: {tz}")
-    except ValueError:
-        await update.message.reply_text("❌ Невірний ID каналу")
+    channel_id = await resolve_channel_id(context, context.args[0])
+    if channel_id is None:
+        await update.message.reply_text("❌ Невірний ID або username каналу")
+        return
+    
+    tz = context.args[1]
+    user_id = update.message.from_user.id
+    
+    if not is_owner(channel_id, user_id):
+        await update.message.reply_text("❌ Ви не є власником цього каналу")
+        return
+    
+    config = get_channel_config(channel_id)
+    if config["owner_id"] is None:
+        await update.message.reply_text("❌ Канал не налаштований")
+        return
+    
+    if tz not in pytz.all_timezones:
+        await update.message.reply_text("❌ Невірний часовий пояс")
+        return
+    
+    set_timezone(channel_id, tz)
+    await update.message.reply_text(f"✅ Часовий пояс встановлено: {tz}")
 
 async def regenerate_key_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text("Використання: /regenerate_key <channel_id>")
+        await update.message.reply_text("Використання: /regenerate_key <channel_id|@username>")
         return
     
-    try:
-        channel_id = int(context.args[0])
-        user_id = update.message.from_user.id
-        
-        if not is_owner(channel_id, user_id):
-            await update.message.reply_text("❌ Ви не є власником цього каналу")
-            return
-        
-        config = get_channel_config(channel_id)
-        if config["owner_id"] is None:
-            await update.message.reply_text("❌ Канал не налаштований")
-            return
-        
-        new_key = secrets.token_urlsafe(32)
-        conn = sqlite3.connect(DB_FILE)
-        conn.execute("UPDATE channels SET api_key = ? WHERE channel_id = ?", (new_key, channel_id))
-        conn.commit()
-        conn.close()
-        
-        await update.message.reply_text(
-            f"✅ Новий API ключ згенеровано!\n\n"
-            f"🔑 API ключ: `{new_key}`\n\n"
-            f"⚠️ Старий ключ більше не працює. Оновіть його у вашому скрипті:\n"
-            f"`curl http://YOUR_SERVER:{HTTP_PORT}/channelPing?channel_key={new_key}`"
-        )
-    except ValueError:
-        await update.message.reply_text("❌ Невірний ID каналу")
+    channel_id = await resolve_channel_id(context, context.args[0])
+    if channel_id is None:
+        await update.message.reply_text("❌ Невірний ID або username каналу")
+        return
+    
+    user_id = update.message.from_user.id
+    
+    if not is_owner(channel_id, user_id):
+        await update.message.reply_text("❌ Ви не є власником цього каналу")
+        return
+    
+    config = get_channel_config(channel_id)
+    if config["owner_id"] is None:
+        await update.message.reply_text("❌ Канал не налаштований")
+        return
+    
+    new_key = secrets.token_urlsafe(32)
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("UPDATE channels SET api_key = ? WHERE channel_id = ?", (new_key, channel_id))
+    conn.commit()
+    conn.close()
+    
+    await update.message.reply_text(
+        f"✅ Новий API ключ згенеровано!\n\n"
+        f"🔑 API ключ: `{new_key}`\n\n"
+        f"⚠️ Старий ключ більше не працює. Оновіть його у вашому скрипті:\n"
+        f"`curl http://YOUR_SERVER:{HTTP_PORT}/channelPing?channel_key={new_key}`"
+    )
 
 async def replace_key_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) < 2:
-        await update.message.reply_text("Використання: /replace_key <channel_id> <new_key>")
+        await update.message.reply_text("Використання: /replace_key <channel_id|@username> <new_key>")
         return
     
-    try:
-        channel_id = int(context.args[0])
-        new_key = context.args[1]
-        user_id = update.message.from_user.id
-        
-        if not is_owner(channel_id, user_id):
-            await update.message.reply_text("❌ Ви не є власником цього каналу")
-            return
-        
-        config = get_channel_config(channel_id)
-        if config["owner_id"] is None:
-            await update.message.reply_text("❌ Канал не налаштований")
-            return
-        
-        conn = sqlite3.connect(DB_FILE)
-        conn.execute("UPDATE channels SET api_key = ? WHERE channel_id = ?", (new_key, channel_id))
-        conn.commit()
-        conn.close()
-        
-        await update.message.reply_text(
-            f"✅ API ключ замінено!\n\n"
-            f"🔑 Новий ключ: `{new_key}`\n\n"
-            f"⚠️ Старий ключ більше не працює."
-        )
-    except ValueError:
-        await update.message.reply_text("❌ Невірний ID каналу")
+    channel_id = await resolve_channel_id(context, context.args[0])
+    if channel_id is None:
+        await update.message.reply_text("❌ Невірний ID або username каналу")
+        return
+    
+    new_key = context.args[1]
+    user_id = update.message.from_user.id
+    
+    if not is_owner(channel_id, user_id):
+        await update.message.reply_text("❌ Ви не є власником цього каналу")
+        return
+    
+    config = get_channel_config(channel_id)
+    if config["owner_id"] is None:
+        await update.message.reply_text("❌ Канал не налаштований")
+        return
+    
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("UPDATE channels SET api_key = ? WHERE channel_id = ?", (new_key, channel_id))
+    conn.commit()
+    conn.close()
+    
+    await update.message.reply_text(
+        f"✅ API ключ замінено!\n\n"
+        f"🔑 Новий ключ: `{new_key}`\n\n"
+        f"⚠️ Старий ключ більше не працює."
+    )
 
 async def remove_channel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text("Використання: /remove_channel <channel_id>")
+        await update.message.reply_text("Використання: /remove_channel <channel_id|@username>")
         return
     
-    try:
-        channel_id = int(context.args[0])
-        user_id = update.message.from_user.id
-        
-        if not is_owner(channel_id, user_id):
-            await update.message.reply_text("❌ Ви не є власником цього каналу")
-            return
-        
-        config = get_channel_config(channel_id)
-        if config["owner_id"] is None:
-            await update.message.reply_text("❌ Канал не налаштований")
-            return
-        
-        conn = sqlite3.connect(DB_FILE)
-        conn.execute("DELETE FROM channels WHERE channel_id = ?", (channel_id,))
-        conn.commit()
-        conn.close()
-        
-        await update.message.reply_text("✅ Канал видалено")
-    except ValueError:
-        await update.message.reply_text("❌ Невірний ID каналу")
+    channel_id = await resolve_channel_id(context, context.args[0])
+    if channel_id is None:
+        await update.message.reply_text("❌ Невірний ID або username каналу")
+        return
+    
+    user_id = update.message.from_user.id
+    
+    if not is_owner(channel_id, user_id):
+        await update.message.reply_text("❌ Ви не є власником цього каналу")
+        return
+    
+    config = get_channel_config(channel_id)
+    if config["owner_id"] is None:
+        await update.message.reply_text("❌ Канал не налаштований")
+        return
+    
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("DELETE FROM channels WHERE channel_id = ?", (channel_id,))
+    conn.commit()
+    conn.close()
+    
+    await update.message.reply_text("✅ Канал видалено")
 
 async def transfer_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) < 2:
-        await update.message.reply_text("Використання: /transfer <channel_id> <new_owner_user_id>")
+        await update.message.reply_text("Використання: /transfer <channel_id|@username> <new_owner_user_id>")
+        return
+    
+    channel_id = await resolve_channel_id(context, context.args[0])
+    if channel_id is None:
+        await update.message.reply_text("❌ Невірний ID або username каналу")
         return
     
     try:
-        channel_id = int(context.args[0])
         new_owner_id = int(context.args[1])
-        user_id = update.message.from_user.id
-        
-        if not is_owner(channel_id, user_id):
-            await update.message.reply_text("❌ Ви не є власником цього каналу")
-            return
-        
-        config = get_channel_config(channel_id)
-        if config["owner_id"] is None:
-            await update.message.reply_text("❌ Канал не налаштований")
-            return
-        
-        conn = sqlite3.connect(DB_FILE)
-        conn.execute("UPDATE channels SET owner_id = ? WHERE channel_id = ?", (new_owner_id, channel_id))
-        conn.commit()
-        conn.close()
-        
-        await update.message.reply_text(f"✅ Власника каналу передано користувачу {new_owner_id}")
-    except ValueError:
-        await update.message.reply_text("❌ Невірний ID каналу або користувача")
+    except (ValueError, IndexError):
+        await update.message.reply_text("❌ Невірний ID користувача")
+        return
+    
+    user_id = update.message.from_user.id
+    
+    if not is_owner(channel_id, user_id):
+        await update.message.reply_text("❌ Ви не є власником цього каналу")
+        return
+    
+    config = get_channel_config(channel_id)
+    if config["owner_id"] is None:
+        await update.message.reply_text("❌ Канал не налаштований")
+        return
+    
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("UPDATE channels SET owner_id = ? WHERE channel_id = ?", (new_owner_id, channel_id))
+    conn.commit()
+    conn.close()
+    
+    await update.message.reply_text(f"✅ Власника каналу передано користувачу {new_owner_id}")
 
 async def history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text("Використання: /history <channel_id> [кількість]")
+        await update.message.reply_text("Використання: /history <channel_id|@username> [кількість]")
+        return
+    
+    channel_id = await resolve_channel_id(context, context.args[0])
+    if channel_id is None:
+        await update.message.reply_text("❌ Невірний ID або username каналу")
         return
     
     try:
-        channel_id = int(context.args[0])
         limit = int(context.args[1]) if len(context.args) > 1 else 10
-        user_id = update.message.from_user.id
-        
-        if not is_owner(channel_id, user_id):
-            await update.message.reply_text("❌ Ви не є власником цього каналу")
-            return
-        
-        config = get_channel_config(channel_id)
-        if config["owner_id"] is None:
-            await update.message.reply_text("❌ Канал не налаштований")
-            return
-        
-        conn = sqlite3.connect(DB_FILE)
-        rows = conn.execute(
-            "SELECT status, timestamp FROM history WHERE channel_id = ? ORDER BY timestamp DESC LIMIT ?",
-            (channel_id, limit)
-        ).fetchall()
-        conn.close()
-        
-        if not rows:
-            await update.message.reply_text("📜 Історія порожня")
-            return
-        
-        tz = pytz.timezone(config["timezone"])
-        msg = f"📜 Історія (останні {len(rows)}):\n\n"
-        
-        prev_timestamp = None
-        for status, timestamp in rows:
-            dt = datetime.fromtimestamp(timestamp, tz)
-            status_emoji = "🟢" if status == 1 else "🔴"
+    except ValueError:
+        await update.message.reply_text("❌ Невірна кількість")
+        return
+    
+    user_id = update.message.from_user.id
+    
+    if not is_owner(channel_id, user_id):
+        await update.message.reply_text("❌ Ви не є власником цього каналу")
+        return
+    
+    config = get_channel_config(channel_id)
+    if config["owner_id"] is None:
+        await update.message.reply_text("❌ Канал не налаштований")
+        return
+    
+    conn = sqlite3.connect(DB_FILE)
+    rows = conn.execute(
+        "SELECT status, timestamp FROM history WHERE channel_id = ? ORDER BY timestamp DESC LIMIT ?",
+        (channel_id, limit)
+    ).fetchall()
+    conn.close()
+    
+    if not rows:
+        await update.message.reply_text("📜 Історія порожня")
+        return
+    
+    tz = pytz.timezone(config["timezone"])
+    msg = f"📜 Історія (останні {len(rows)}):\n\n"
+    
+    prev_timestamp = None
+    for status, timestamp in rows:
+        dt = datetime.fromtimestamp(timestamp, tz)
+        status_emoji = "🟢" if status == 1 else "🔴"
             status_text = "з'явилося" if status == 1 else "зникло"
             
             duration_text = ""
@@ -514,8 +532,6 @@ async def history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             prev_timestamp = timestamp
         
         await update.message.reply_text(msg)
-    except ValueError:
-        await update.message.reply_text("❌ Невірний ID каналу або кількість")
 
 async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id

@@ -40,6 +40,15 @@ def init_db():
             FOREIGN KEY (channel_id) REFERENCES channels(channel_id) ON DELETE CASCADE
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS notifications (
+            user_id INTEGER,
+            channel_id INTEGER,
+            enabled INTEGER DEFAULT 1,
+            PRIMARY KEY (user_id, channel_id),
+            FOREIGN KEY (channel_id) REFERENCES channels(channel_id) ON DELETE CASCADE
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -219,6 +228,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/remove_channel <channel_id|@username> - видалити канал\n"
         "/transfer <channel_id|@username> <user_id> - передати власність\n"
         "/history <channel_id|@username> [кількість] - історія змін\n"
+        "/notify <channel_id|@username> <on|off> - сповіщення в DM\n"
+        "/notify - показати налаштування сповіщень\n"
         "/status <channel_id|@username> - перевірити статус\n"
         "/status - показати всі канали\n\n"
         "Перешліть повідомлення з каналу для отримання ID."
@@ -533,6 +544,63 @@ async def history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(msg)
 
+async def notify_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    
+    if not context.args:
+        # Show notification settings for all channels
+        conn = sqlite3.connect(DB_FILE)
+        channels = conn.execute("SELECT channel_id FROM channels WHERE owner_id = ?", (user_id,)).fetchall()
+        notifications = conn.execute("SELECT channel_id FROM notifications WHERE user_id = ? AND enabled = 1", (user_id,)).fetchall()
+        conn.close()
+        
+        if not channels:
+            await update.message.reply_text("❌ У вас немає налаштованих каналів")
+            return
+        
+        enabled_ids = {ch[0] for ch in notifications}
+        msg = "🔔 Сповіщення:\n\n"
+        for (channel_id,) in channels:
+            status = "✅ увімкнено" if channel_id in enabled_ids else "❌ вимкнено"
+            msg += f"{channel_id}: {status}\n"
+        
+        msg += "\nВикористання:\n/notify <channel_id> on - увімкнути\n/notify <channel_id> off - вимкнути"
+        await update.message.reply_text(msg)
+        return
+    
+    if len(context.args) < 2:
+        await update.message.reply_text("Використання: /notify <channel_id|@username> <on|off>")
+        return
+    
+    channel_id = await resolve_channel_id(context, context.args[0])
+    if channel_id is None:
+        await update.message.reply_text("❌ Невірний ID або username каналу")
+        return
+    
+    action = context.args[1].lower()
+    if action not in ['on', 'off']:
+        await update.message.reply_text("❌ Використовуйте 'on' або 'off'")
+        return
+    
+    if not is_owner(channel_id, user_id):
+        await update.message.reply_text("❌ Ви не є власником цього каналу")
+        return
+    
+    config = get_channel_config(channel_id)
+    if config["owner_id"] is None:
+        await update.message.reply_text("❌ Канал не налаштований")
+        return
+    
+    enabled = 1 if action == 'on' else 0
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("INSERT OR REPLACE INTO notifications (user_id, channel_id, enabled) VALUES (?, ?, ?)",
+                 (user_id, channel_id, enabled))
+    conn.commit()
+    conn.close()
+    
+    status_text = "увімкнено" if enabled else "вимкнено"
+    await update.message.reply_text(f"✅ Сповіщення {status_text}")
+
 async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     
@@ -720,10 +788,28 @@ async def handle_ping(request):
             message += f"\n\n📊 Сьогодні: {uptime_str} онлайн, {downtime_str} офлайн ({stats['outages']} відключень)"
         
         if telegram_app:
+            # Send to channel
             await telegram_app.bot.send_message(
                 chat_id=channel["channel_id"],
                 text=message
             )
+            
+            # Send DM notifications to users who enabled them
+            conn = sqlite3.connect(DB_FILE)
+            users = conn.execute(
+                "SELECT user_id FROM notifications WHERE channel_id = ? AND enabled = 1",
+                (channel["channel_id"],)
+            ).fetchall()
+            conn.close()
+            
+            for (user_id,) in users:
+                try:
+                    await telegram_app.bot.send_message(
+                        chat_id=user_id,
+                        text=f"🔔 Канал {channel['channel_id']}\n\n{message}"
+                    )
+                except Exception:
+                    pass  # User might have blocked the bot
     
     return web.Response(text="OK")
 
@@ -769,10 +855,28 @@ async def check_timeouts():
                 
                 if telegram_app:
                     try:
+                        # Send to channel
                         await telegram_app.bot.send_message(
                             chat_id=channel_id,
                             text=message
                         )
+                        
+                        # Send DM notifications
+                        conn_notify = sqlite3.connect(DB_FILE)
+                        users = conn_notify.execute(
+                            "SELECT user_id FROM notifications WHERE channel_id = ? AND enabled = 1",
+                            (channel_id,)
+                        ).fetchall()
+                        conn_notify.close()
+                        
+                        for (user_id,) in users:
+                            try:
+                                await telegram_app.bot.send_message(
+                                    chat_id=user_id,
+                                    text=f"🔔 Канал {channel_id}\n\n{message}"
+                                )
+                            except Exception:
+                                pass  # User might have blocked the bot
                     except Exception as e:
                         print(f"Error sending message to {channel_id}: {e}")
 
@@ -805,6 +909,7 @@ def main():
     telegram_app.add_handler(CommandHandler("remove_channel", remove_channel_cmd))
     telegram_app.add_handler(CommandHandler("transfer", transfer_cmd))
     telegram_app.add_handler(CommandHandler("history", history_cmd))
+    telegram_app.add_handler(CommandHandler("notify", notify_cmd))
     telegram_app.add_handler(CommandHandler("status", status_cmd))
     telegram_app.add_handler(MessageHandler(filters.FORWARDED & filters.ChatType.PRIVATE, handle_forwarded))
     telegram_app.add_handler(ChatMemberHandler(handle_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))

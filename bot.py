@@ -29,7 +29,8 @@ def init_db():
             last_request_time REAL,
             is_power_on INTEGER DEFAULT 0,
             last_status_change REAL,
-            paused INTEGER DEFAULT 0
+            paused INTEGER DEFAULT 0,
+            channel_name TEXT
         )
     """)
     conn.execute("""
@@ -135,6 +136,13 @@ async def resolve_channel_id(context: ContextTypes.DEFAULT_TYPE, channel_input: 
             return int(channel_input)
         except ValueError:
             return None
+
+def update_channel_name(channel_id, channel_name):
+    """Update channel name in database"""
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("UPDATE channels SET channel_name = ? WHERE channel_id = ?", (channel_name, channel_id))
+    conn.commit()
+    conn.close()
 
 def set_timezone(channel_id, tz):
     conn = sqlite3.connect(DB_FILE)
@@ -1040,6 +1048,8 @@ async def handle_dashboard(request):
                 channel_name = chat.title
             else:
                 channel_name = f"Channel {channel_id}"
+            # Save to database for Grafana
+            update_channel_name(channel_id, channel_name)
         else:
             channel_name = f"Channel {channel_id}"
     except Exception:

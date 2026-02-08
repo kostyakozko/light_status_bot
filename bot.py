@@ -232,6 +232,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/notify <channel_id|@username> <on|off> - сповіщення в DM\n"
         "/notify - показати налаштування сповіщень\n"
         "/pause <channel_id|@username> <on|off> - призупинити/відновити моніторинг\n"
+        "/export <channel_id|@username> <csv|json> - експорт всієї історії\n"
         "/status <channel_id|@username> - перевірити статус\n"
         "/status - показати всі канали\n\n"
         "Перешліть повідомлення з каналу для отримання ID."
@@ -644,6 +645,114 @@ async def pause_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("▶️ Моніторинг відновлено.")
 
+async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) < 2:
+        await update.message.reply_text("Використання: /export <channel_id|@username> <csv|json>")
+        return
+    
+    channel_id = await resolve_channel_id(context, context.args[0])
+    if channel_id is None:
+        await update.message.reply_text("❌ Невірний ID або username каналу")
+        return
+    
+    format_type = context.args[1].lower()
+    if format_type not in ['csv', 'json']:
+        await update.message.reply_text("❌ Формат має бути 'csv' або 'json'")
+        return
+    
+    user_id = update.message.from_user.id
+    
+    if not is_owner(channel_id, user_id):
+        await update.message.reply_text("❌ Ви не є власником цього каналу")
+        return
+    
+    config = get_channel_config(channel_id)
+    if config["owner_id"] is None:
+        await update.message.reply_text("❌ Канал не налаштований")
+        return
+    
+    # Get all history
+    conn = sqlite3.connect(DB_FILE)
+    rows = conn.execute(
+        "SELECT status, timestamp FROM history WHERE channel_id = ? ORDER BY timestamp ASC",
+        (channel_id,)
+    ).fetchall()
+    conn.close()
+    
+    if not rows:
+        await update.message.reply_text("📜 Історія порожня")
+        return
+    
+    tz = pytz.timezone(config["timezone"])
+    
+    if format_type == 'csv':
+        import io
+        output = io.StringIO()
+        output.write("timestamp,status,datetime,duration_minutes\n")
+        
+        prev_timestamp = None
+        for status, timestamp in rows:
+            dt = datetime.fromtimestamp(timestamp, tz)
+            status_text = "on" if status == 1 else "off"
+            duration = int((timestamp - prev_timestamp) / 60) if prev_timestamp else 0
+            output.write(f"{int(timestamp)},{status_text},{dt.strftime('%Y-%m-%d %H:%M:%S')},{duration}\n")
+            prev_timestamp = timestamp
+        
+        # Add current period
+        now = datetime.now(tz).timestamp()
+        duration = int((now - prev_timestamp) / 60)
+        current_status = "on" if config["is_power_on"] else "off"
+        dt_now = datetime.fromtimestamp(now, tz)
+        output.write(f"{int(now)},{current_status},{dt_now.strftime('%Y-%m-%d %H:%M:%S')},{duration}\n")
+        
+        filename = f"channel_{channel_id}_export.csv"
+        await update.message.reply_document(
+            document=output.getvalue().encode('utf-8'),
+            filename=filename,
+            caption=f"📊 Експорт даних ({len(rows)+1} записів)"
+        )
+    else:  # json
+        import json
+        data = {
+            "channel_id": channel_id,
+            "timezone": config["timezone"],
+            "export_date": datetime.now(tz).isoformat(),
+            "total_events": len(rows) + 1,
+            "history": []
+        }
+        
+        prev_timestamp = None
+        for status, timestamp in rows:
+            dt = datetime.fromtimestamp(timestamp, tz)
+            status_text = "on" if status == 1 else "off"
+            duration = int((timestamp - prev_timestamp) / 60) if prev_timestamp else 0
+            data["history"].append({
+                "timestamp": int(timestamp),
+                "status": status_text,
+                "datetime": dt.strftime('%Y-%m-%d %H:%M:%S'),
+                "duration_minutes": duration
+            })
+            prev_timestamp = timestamp
+        
+        # Add current period
+        now = datetime.now(tz).timestamp()
+        duration = int((now - prev_timestamp) / 60)
+        current_status = "on" if config["is_power_on"] else "off"
+        dt_now = datetime.fromtimestamp(now, tz)
+        data["history"].append({
+            "timestamp": int(now),
+            "status": current_status,
+            "datetime": dt_now.strftime('%Y-%m-%d %H:%M:%S'),
+            "duration_minutes": duration
+        })
+        
+        filename = f"channel_{channel_id}_export.json"
+        await update.message.reply_document(
+            document=json.dumps(data, indent=2, ensure_ascii=False).encode('utf-8'),
+            filename=filename,
+            caption=f"📊 Експорт даних ({len(rows)+1} записів)"
+        )
+
 async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     
@@ -954,6 +1063,7 @@ def main():
     telegram_app.add_handler(CommandHandler("history", history_cmd))
     telegram_app.add_handler(CommandHandler("notify", notify_cmd))
     telegram_app.add_handler(CommandHandler("pause", pause_cmd))
+    telegram_app.add_handler(CommandHandler("export", export_cmd))
     telegram_app.add_handler(CommandHandler("status", status_cmd))
     telegram_app.add_handler(MessageHandler(filters.FORWARDED & filters.ChatType.PRIVATE, handle_forwarded))
     telegram_app.add_handler(ChatMemberHandler(handle_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))

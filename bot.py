@@ -134,6 +134,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/get_key <channel_id> - отримати API ключ\n"
         "/set_timezone <channel_id> <timezone> - встановити часовий пояс\n"
         "/regenerate_key <channel_id> - згенерувати новий API ключ\n"
+        "/remove_channel <channel_id> - видалити канал\n"
         "/status <channel_id> - перевірити статус\n"
         "/status - показати всі канали\n\n"
         "Перешліть повідомлення з каналу для отримання ID."
@@ -291,6 +292,33 @@ async def regenerate_key_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"⚠️ Старий ключ більше не працює. Оновіть його у вашому скрипті:\n"
             f"`curl http://YOUR_SERVER:{HTTP_PORT}/channelPing?channel_key={new_key}`"
         )
+    except ValueError:
+        await update.message.reply_text("❌ Невірний ID каналу")
+
+async def remove_channel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Використання: /remove_channel <channel_id>")
+        return
+    
+    try:
+        channel_id = int(context.args[0])
+        user_id = update.message.from_user.id
+        
+        if not is_owner(channel_id, user_id):
+            await update.message.reply_text("❌ Ви не є власником цього каналу")
+            return
+        
+        config = get_channel_config(channel_id)
+        if config["owner_id"] is None:
+            await update.message.reply_text("❌ Канал не налаштований")
+            return
+        
+        conn = sqlite3.connect(DB_FILE)
+        conn.execute("DELETE FROM channels WHERE channel_id = ?", (channel_id,))
+        conn.commit()
+        conn.close()
+        
+        await update.message.reply_text("✅ Канал видалено")
     except ValueError:
         await update.message.reply_text("❌ Невірний ID каналу")
 
@@ -524,6 +552,7 @@ def main():
     telegram_app.add_handler(CommandHandler("get_key", get_key_cmd))
     telegram_app.add_handler(CommandHandler("set_timezone", set_timezone_cmd))
     telegram_app.add_handler(CommandHandler("regenerate_key", regenerate_key_cmd))
+    telegram_app.add_handler(CommandHandler("remove_channel", remove_channel_cmd))
     telegram_app.add_handler(CommandHandler("status", status_cmd))
     telegram_app.add_handler(MessageHandler(filters.FORWARDED & filters.ChatType.PRIVATE, handle_forwarded))
     telegram_app.add_handler(ChatMemberHandler(handle_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))

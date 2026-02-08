@@ -135,6 +135,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/set_timezone <channel_id> <timezone> - встановити часовий пояс\n"
         "/regenerate_key <channel_id> - згенерувати новий API ключ\n"
         "/remove_channel <channel_id> - видалити канал\n"
+        "/transfer <channel_id> <user_id> - передати власність\n"
         "/status <channel_id> - перевірити статус\n"
         "/status - показати всі канали\n\n"
         "Перешліть повідомлення з каналу для отримання ID."
@@ -321,6 +322,34 @@ async def remove_channel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("✅ Канал видалено")
     except ValueError:
         await update.message.reply_text("❌ Невірний ID каналу")
+
+async def transfer_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) < 2:
+        await update.message.reply_text("Використання: /transfer <channel_id> <new_owner_user_id>")
+        return
+    
+    try:
+        channel_id = int(context.args[0])
+        new_owner_id = int(context.args[1])
+        user_id = update.message.from_user.id
+        
+        if not is_owner(channel_id, user_id):
+            await update.message.reply_text("❌ Ви не є власником цього каналу")
+            return
+        
+        config = get_channel_config(channel_id)
+        if config["owner_id"] is None:
+            await update.message.reply_text("❌ Канал не налаштований")
+            return
+        
+        conn = sqlite3.connect(DB_FILE)
+        conn.execute("UPDATE channels SET owner_id = ? WHERE channel_id = ?", (new_owner_id, channel_id))
+        conn.commit()
+        conn.close()
+        
+        await update.message.reply_text(f"✅ Власника каналу передано користувачу {new_owner_id}")
+    except ValueError:
+        await update.message.reply_text("❌ Невірний ID каналу або користувача")
 
 async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
@@ -553,6 +582,7 @@ def main():
     telegram_app.add_handler(CommandHandler("set_timezone", set_timezone_cmd))
     telegram_app.add_handler(CommandHandler("regenerate_key", regenerate_key_cmd))
     telegram_app.add_handler(CommandHandler("remove_channel", remove_channel_cmd))
+    telegram_app.add_handler(CommandHandler("transfer", transfer_cmd))
     telegram_app.add_handler(CommandHandler("status", status_cmd))
     telegram_app.add_handler(MessageHandler(filters.FORWARDED & filters.ChatType.PRIVATE, handle_forwarded))
     telegram_app.add_handler(ChatMemberHandler(handle_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))

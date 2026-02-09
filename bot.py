@@ -219,22 +219,6 @@ def get_daily_stats(channel_id, timezone):
     
     # Add time from last event to now
     duration = now_ts - prev_time
-    
-    for status, timestamp in rows:
-        duration = timestamp - prev_time
-        if prev_status == 1:
-            uptime += duration
-        else:
-            downtime += duration
-        
-        if status == 0 and prev_status == 1:
-            outages += 1
-        
-        prev_status = status
-        prev_time = timestamp
-    
-    # Add time from last event to now
-    duration = now_ts - prev_time
     if prev_status == 1:
         uptime += duration
     else:

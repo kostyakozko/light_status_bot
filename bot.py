@@ -1314,8 +1314,8 @@ async def check_timeouts():
             channel_id, api_key, tz_str, last_req, is_on, last_change = row
             
             if last_req and (now - last_req) > timeout_seconds:
-                # Power is off
-                update_power_status(api_key, False, now)
+                # Power is off - use last_req as the OFF time, not now
+                update_power_status(api_key, False, last_req)
                 
                 # Calculate how long it was on
                 if last_change:

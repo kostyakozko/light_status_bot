@@ -2,6 +2,91 @@
 
 Telegram bot for monitoring power/light status via HTTP requests.
 
+## Quick Start Guide
+
+### For New Users (First Time Setup)
+
+#### Option A: New Channel (Standalone)
+
+1. **Add bot to your channel:**
+   - Add the bot as administrator to your Telegram channel
+   - Forward any message from the channel to the bot in DM
+
+2. **Create channel configuration:**
+   - Send `/create_channel <channel_id>` (use the ID from forwarded message)
+   - Bot will generate a unique API key
+
+3. **Get your API key:**
+   - Send `/get_key` to receive your channel's API key
+
+4. **Setup device ping:**
+   - Configure your device (router, Raspberry Pi, etc.) to ping the bot:
+   ```bash
+   curl https://YOUR_DOMAIN/channelPing?channel_key=YOUR_KEY
+   ```
+   - Set it to run every 1-2 minutes while power is ON
+
+5. **Configure timezone (optional):**
+   - Send `/set_timezone Europe/Kiev` (or your timezone)
+
+6. **Enable DM notifications (optional):**
+   - Send `/notify` to receive personal notifications on status changes
+
+#### Option B: Import Existing Channel (From svitlobot or other bot)
+
+Use this if you already have a channel with svitlobot and want to:
+- Use both bots together (redundancy)
+- Migrate to this bot only
+- Try this bot while keeping svitlobot
+
+1. **Add bot to your channel:**
+   - Add the bot as administrator to your Telegram channel
+   - Forward any message from the channel to the bot in DM
+
+2. **Import with existing key:**
+   - Send `/import_channel <channel_id> <existing_key>`
+   - Use your svitlobot API key
+
+3. **Update device ping script:**
+   
+   **For redundancy (both bots):**
+   ```bash
+   # Ping both bots
+   curl http://api.svitlobot.in.ua/channelPing?channel_key=YOUR_KEY
+   curl https://YOUR_DOMAIN/channelPing?channel_key=YOUR_KEY
+   ```
+   
+   **For migration (this bot only):**
+   ```bash
+   # Replace svitlobot URL with this bot
+   curl https://YOUR_DOMAIN/channelPing?channel_key=YOUR_KEY
+   ```
+
+4. **Configure timezone and notifications (optional)**
+
+### For Existing Users (Add Another Channel)
+
+#### Add New Channel (Generate New Key)
+
+1. **Forward message from new channel to bot**
+2. **Send `/create_channel <new_channel_id>`**
+3. **Get the key: `/get_key <new_channel_id>`**
+4. **Setup ping on your device with the new key**
+
+#### Import Existing Channel (Use Existing Key)
+
+1. **Forward message from new channel to bot**
+2. **Send `/import_channel <new_channel_id> <existing_key>`**
+3. **Update your device ping script to include this bot**
+
+**Done!** Use `/list_keys` to see all your channels
+
+### Switching Between Channels
+
+- Use `/list_keys` to see all your channels
+- Most commands accept `channel_id` parameter: `/status <channel_id>`
+- Or use channel username: `/status @channelname`
+
 ## Features
 
 - Monitor multiple channels from one Telegram account

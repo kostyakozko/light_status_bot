@@ -193,6 +193,9 @@ def get_daily_stats(channel_id, timezone):
     # Start from midnight with status at that time
     if status_at_midnight:
         prev_status = status_at_midnight[0]
+        # If day started with power OFF, count it as 1 outage
+        if prev_status == 0:
+            outages = 1
     elif rows:
         # No history before today, use first event's status
         prev_status = rows[0][0]

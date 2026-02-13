@@ -600,7 +600,7 @@ async def history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ У вас немає налаштованих каналів")
             return
         
-        msg = "📜 Історія всіх каналів (останні 10 подій):\n\n"
+        msg = "📜 Історія всіх каналів (останні події):\n\n"
         
         for channel_id, channel_name, timezone in channels:
             tz = pytz.timezone(timezone)
@@ -624,7 +624,7 @@ async def history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             if rows:
                 msg += f"📍 {display_name}:\n"
-                for status, timestamp in rows[:3]:  # Show only last 3 per channel
+                for status, timestamp in rows:
                     dt = datetime.fromtimestamp(timestamp, tz)
                     status_emoji = "🟢" if status == 1 else "🔴"
                     status_text = "з'явилося" if status == 1 else "зникло"

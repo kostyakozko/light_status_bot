@@ -266,6 +266,9 @@ def get_channel_id_from_arg(arg):
         return None
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.message.from_user
+    print(f"User {user.id} (@{user.username if user.username else 'no username'}) sent /start")
+    
     await update.message.reply_text(
         "Команди:\n"
         "/create_channel <channel_id|@username> - створити новий канал\n"
@@ -289,6 +292,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/whitelist_add <channel_id|@username> <user_id> - додати до whitelist\n"
         "/whitelist_remove <channel_id|@username> <user_id> - видалити з whitelist\n"
         "/whitelist_list <channel_id|@username> - показати whitelist\n\n"
+        f"👤 Ваш Telegram ID: `{user.id}`\n\n"
         "Перешліть повідомлення з каналу для отримання ID."
     )
 

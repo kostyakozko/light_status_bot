@@ -1493,8 +1493,10 @@ async def handle_ping(request):
 async def check_timeouts():
     """Background task to check for timeouts"""
     global telegram_app
+    print("Timeout checker started")
     while True:
         await asyncio.sleep(30)  # Check every 30 seconds
+        print(f"Checking timeouts... telegram_app is {'set' if telegram_app else 'None'}")
         
         conn = sqlite3.connect(DB_FILE)
         cur = conn.execute("SELECT channel_id, api_key, timezone, last_request_time, is_power_on, last_status_change FROM channels WHERE is_power_on = 1 AND paused = 0")

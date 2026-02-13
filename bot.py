@@ -50,6 +50,16 @@ def init_db():
             FOREIGN KEY (channel_id) REFERENCES channels(channel_id) ON DELETE CASCADE
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS whitelist (
+            channel_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            added_by INTEGER NOT NULL,
+            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (channel_id, user_id),
+            FOREIGN KEY (channel_id) REFERENCES channels(channel_id) ON DELETE CASCADE
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -275,7 +285,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/resume <channel_id|@username> - відновити моніторинг\n"
         "/export <channel_id|@username> <csv|json> - експорт всієї історії\n"
         "/status <channel_id|@username> - перевірити статус\n"
-        "/status - показати всі канали\n\n"
+        "/status - показати всі канали\n"
+        "/whitelist_add <channel_id|@username> <user_id> - додати до whitelist\n"
+        "/whitelist_remove <channel_id|@username> <user_id> - видалити з whitelist\n"
+        "/whitelist_list <channel_id|@username> - показати whitelist\n\n"
         "Перешліть повідомлення з каналу для отримання ID."
     )
 
@@ -951,6 +964,113 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(msg)
 
+async def whitelist_add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) < 2:
+        await update.message.reply_text("Використання: /whitelist_add <channel_id|@username> <user_id>")
+        return
+    
+    user_id = update.message.from_user.id
+    channel_id = await resolve_channel_id(context, context.args[0])
+    
+    if channel_id is None:
+        await update.message.reply_text("❌ Невірний ID або username каналу")
+        return
+    
+    if not is_owner(channel_id, user_id):
+        await update.message.reply_text("❌ Тільки власник може керувати whitelist")
+        return
+    
+    try:
+        target_user_id = int(context.args[1])
+    except ValueError:
+        await update.message.reply_text("❌ Невірний user_id")
+        return
+    
+    if target_user_id == user_id:
+        await update.message.reply_text("❌ Ви вже є власником каналу")
+        return
+    
+    conn = sqlite3.connect(DB_FILE)
+    try:
+        conn.execute(
+            "INSERT INTO whitelist (channel_id, user_id, added_by) VALUES (?, ?, ?)",
+            (channel_id, target_user_id, user_id)
+        )
+        conn.commit()
+        await update.message.reply_text(f"✅ Користувач {target_user_id} додано до whitelist")
+    except sqlite3.IntegrityError:
+        await update.message.reply_text("❌ Користувач вже в whitelist")
+    finally:
+        conn.close()
+
+async def whitelist_remove_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) < 2:
+        await update.message.reply_text("Використання: /whitelist_remove <channel_id|@username> <user_id>")
+        return
+    
+    user_id = update.message.from_user.id
+    channel_id = await resolve_channel_id(context, context.args[0])
+    
+    if channel_id is None:
+        await update.message.reply_text("❌ Невірний ID або username каналу")
+        return
+    
+    if not is_owner(channel_id, user_id):
+        await update.message.reply_text("❌ Тільки власник може керувати whitelist")
+        return
+    
+    try:
+        target_user_id = int(context.args[1])
+    except ValueError:
+        await update.message.reply_text("❌ Невірний user_id")
+        return
+    
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.execute(
+        "DELETE FROM whitelist WHERE channel_id = ? AND user_id = ?",
+        (channel_id, target_user_id)
+    )
+    conn.commit()
+    
+    if cursor.rowcount > 0:
+        await update.message.reply_text(f"✅ Користувач {target_user_id} видалено з whitelist")
+    else:
+        await update.message.reply_text("❌ Користувач не знайдено в whitelist")
+    conn.close()
+
+async def whitelist_list_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Використання: /whitelist_list <channel_id|@username>")
+        return
+    
+    user_id = update.message.from_user.id
+    channel_id = await resolve_channel_id(context, context.args[0])
+    
+    if channel_id is None:
+        await update.message.reply_text("❌ Невірний ID або username каналу")
+        return
+    
+    if not is_owner(channel_id, user_id):
+        await update.message.reply_text("❌ Тільки власник може переглядати whitelist")
+        return
+    
+    conn = sqlite3.connect(DB_FILE)
+    rows = conn.execute(
+        "SELECT user_id, added_at FROM whitelist WHERE channel_id = ? ORDER BY added_at",
+        (channel_id,)
+    ).fetchall()
+    conn.close()
+    
+    if not rows:
+        await update.message.reply_text("📋 Whitelist порожній")
+        return
+    
+    msg = f"📋 Whitelist для каналу {channel_id}:\n\n"
+    for target_user_id, added_at in rows:
+        msg += f"• {target_user_id} (додано {added_at})\n"
+    
+    await update.message.reply_text(msg)
+
 async def handle_forwarded(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg:
@@ -1400,6 +1520,9 @@ def main():
     telegram_app.add_handler(CommandHandler("resume", resume_cmd))
     telegram_app.add_handler(CommandHandler("export", export_cmd))
     telegram_app.add_handler(CommandHandler("status", status_cmd))
+    telegram_app.add_handler(CommandHandler("whitelist_add", whitelist_add_cmd))
+    telegram_app.add_handler(CommandHandler("whitelist_remove", whitelist_remove_cmd))
+    telegram_app.add_handler(CommandHandler("whitelist_list", whitelist_list_cmd))
     telegram_app.add_handler(MessageHandler(filters.FORWARDED & filters.ChatType.PRIVATE, handle_forwarded))
     telegram_app.add_handler(ChatMemberHandler(handle_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
     

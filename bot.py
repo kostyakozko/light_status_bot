@@ -1078,12 +1078,20 @@ async def handle_forwarded(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if hasattr(msg, 'forward_origin') and msg.forward_origin:
         origin = msg.forward_origin
-        if hasattr(origin, 'chat') and origin.chat and origin.chat.type == "channel":
-            channel_id = origin.chat.id
-            await msg.reply_text(
-                f"ID каналу: {channel_id}\n\n"
-                f"Використайте: /create_channel {channel_id}"
-            )
+        if hasattr(origin, 'chat') and origin.chat:
+            if origin.chat.type == "channel":
+                channel_id = origin.chat.id
+                await msg.reply_text(
+                    f"ID каналу: {channel_id}\n\n"
+                    f"Використайте: /create_channel {channel_id}"
+                )
+            elif origin.chat.type == "private":
+                user_id = origin.chat.id
+                username = origin.chat.username if hasattr(origin.chat, 'username') else None
+                response = f"👤 User ID: `{user_id}`"
+                if username:
+                    response += f"\nUsername: @{username}"
+                await msg.reply_text(response)
 
 async def handle_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle bot being added to channel"""

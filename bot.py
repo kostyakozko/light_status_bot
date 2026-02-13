@@ -1574,6 +1574,7 @@ def main():
             return
     
     # Create Telegram bot
+    global telegram_app
     telegram_app = Application.builder().token(token).build()
     
     telegram_app.add_handler(CommandHandler("start", start))

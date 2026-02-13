@@ -1076,8 +1076,25 @@ async def handle_forwarded(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not msg:
         return
     
+    # Debug: log what we receive
+    print(f"Forwarded message received. Has forward_origin: {hasattr(msg, 'forward_origin')}")
+    if hasattr(msg, 'forward_origin'):
+        print(f"Forward origin type: {type(msg.forward_origin)}")
+        print(f"Forward origin: {msg.forward_origin}")
+    
     if hasattr(msg, 'forward_origin') and msg.forward_origin:
         origin = msg.forward_origin
+        
+        # Check for SenderUser type (forwarded from user)
+        if hasattr(origin, 'sender_user') and origin.sender_user:
+            user = origin.sender_user
+            response = f"👤 User ID: `{user.id}`"
+            if user.username:
+                response += f"\nUsername: @{user.username}"
+            await msg.reply_text(response)
+            return
+        
+        # Check for channel
         if hasattr(origin, 'chat') and origin.chat:
             if origin.chat.type == "channel":
                 channel_id = origin.chat.id

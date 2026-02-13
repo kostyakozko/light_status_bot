@@ -1492,6 +1492,7 @@ async def handle_ping(request):
 
 async def check_timeouts():
     """Background task to check for timeouts"""
+    global telegram_app
     while True:
         await asyncio.sleep(30)  # Check every 30 seconds
         

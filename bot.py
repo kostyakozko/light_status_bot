@@ -585,8 +585,54 @@ async def transfer_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ Власника каналу передано користувачу {new_owner_id}")
 
 async def history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    
     if not context.args:
-        await update.message.reply_text("Використання: /history <channel_id|@username> [кількість]")
+        # Show history for all user's channels
+        conn = sqlite3.connect(DB_FILE)
+        channels = conn.execute(
+            "SELECT channel_id, channel_name, timezone FROM channels WHERE owner_id = ?",
+            (user_id,)
+        ).fetchall()
+        
+        if not channels:
+            conn.close()
+            await update.message.reply_text("❌ У вас немає налаштованих каналів")
+            return
+        
+        msg = "📜 Історія всіх каналів (останні 10 подій):\n\n"
+        
+        for channel_id, channel_name, timezone in channels:
+            tz = pytz.timezone(timezone)
+            
+            # Get channel display name
+            try:
+                chat = await context.bot.get_chat(channel_id)
+                if chat.username:
+                    display_name = f"@{chat.username}"
+                elif chat.title:
+                    display_name = chat.title
+                else:
+                    display_name = str(channel_id)
+            except Exception:
+                display_name = channel_name or str(channel_id)
+            
+            rows = conn.execute(
+                "SELECT status, timestamp FROM history WHERE channel_id = ? ORDER BY timestamp DESC LIMIT 10",
+                (channel_id,)
+            ).fetchall()
+            
+            if rows:
+                msg += f"📍 {display_name}:\n"
+                for status, timestamp in rows[:3]:  # Show only last 3 per channel
+                    dt = datetime.fromtimestamp(timestamp, tz)
+                    status_emoji = "🟢" if status == 1 else "🔴"
+                    status_text = "з'явилося" if status == 1 else "зникло"
+                    msg += f"  {status_emoji} {dt.strftime('%d.%m %H:%M')} {status_text}\n"
+                msg += "\n"
+        
+        conn.close()
+        await update.message.reply_text(msg)
         return
     
     channel_id = await resolve_channel_id(context, context.args[0])
@@ -599,8 +645,6 @@ async def history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except ValueError:
         await update.message.reply_text("❌ Невірна кількість")
         return
-    
-    user_id = update.message.from_user.id
     
     if not is_owner(channel_id, user_id):
         await update.message.reply_text("❌ Ви не є власником цього каналу")

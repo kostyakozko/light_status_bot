@@ -1490,75 +1490,68 @@ async def handle_ping(request):
     
     return web.Response(text="OK")
 
-async def check_timeouts():
+async def check_timeouts(context):
     """Background task to check for timeouts"""
-    global telegram_app
-    print("Timeout checker started")
-    while True:
-        await asyncio.sleep(30)  # Check every 30 seconds
-        print(f"Checking timeouts... telegram_app is {'set' if telegram_app else 'None'}")
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.execute("SELECT channel_id, api_key, timezone, last_request_time, is_power_on, last_status_change FROM channels WHERE is_power_on = 1 AND paused = 0")
+    channels = cur.fetchall()
+    conn.close()
+    
+    now = datetime.now().timestamp()
+    timeout_seconds = TIMEOUT_MINUTES * 60
+    
+    for row in channels:
+        channel_id, api_key, tz_str, last_req, is_on, last_change = row
         
-        conn = sqlite3.connect(DB_FILE)
-        cur = conn.execute("SELECT channel_id, api_key, timezone, last_request_time, is_power_on, last_status_change FROM channels WHERE is_power_on = 1 AND paused = 0")
-        channels = cur.fetchall()
-        conn.close()
-        
-        now = datetime.now().timestamp()
-        timeout_seconds = TIMEOUT_MINUTES * 60
-        
-        for row in channels:
-            channel_id, api_key, tz_str, last_req, is_on, last_change = row
+        if last_req and (now - last_req) > timeout_seconds:
+            # Power is off - use last_req as the OFF time, not now
+            update_power_status(api_key, False, last_req)
             
-            if last_req and (now - last_req) > timeout_seconds:
-                # Power is off - use last_req as the OFF time, not now
-                update_power_status(api_key, False, last_req)
+            # Calculate how long it was on
+            if last_change:
+                duration = last_req - last_change
+                duration_text = format_duration(duration)
+            else:
+                duration_text = "невідомо"
+            
+            # Send Telegram message
+            tz = pytz.timezone(tz_str)
+            time_str = datetime.fromtimestamp(last_req, tz).strftime("%H:%M")
+            
+            message = f"🔴 {time_str} Електрохарчування відсутнє\n🕓 Воно було {duration_text}"
+            
+            # Add daily stats
+            stats = get_daily_stats(channel_id, tz_str)
+            if stats:
+                uptime_str = format_duration(stats["uptime"])
+                downtime_str = format_duration(stats["downtime"])
+                message += f"\n\n📊 Сьогодні: {uptime_str} онлайн, {downtime_str} офлайн ({stats['outages']} відключень)"
+            
+            try:
+                # Send to channel
+                await context.bot.send_message(
+                    chat_id=channel_id,
+                    text=message
+                )
                 
-                # Calculate how long it was on
-                if last_change:
-                    duration = last_req - last_change
-                    duration_text = format_duration(duration)
-                else:
-                    duration_text = "невідомо"
+                # Send DM notifications
+                conn_notify = sqlite3.connect(DB_FILE)
+                users = conn_notify.execute(
+                    "SELECT user_id FROM notifications WHERE channel_id = ? AND enabled = 1",
+                    (channel_id,)
+                ).fetchall()
+                conn_notify.close()
                 
-                # Send Telegram message
-                tz = pytz.timezone(tz_str)
-                time_str = datetime.fromtimestamp(last_req, tz).strftime("%H:%M")
-                
-                message = f"🔴 {time_str} Електрохарчування відсутнє\n🕓 Воно було {duration_text}"
-                
-                # Add daily stats
-                stats = get_daily_stats(channel_id, tz_str)
-                if stats:
-                    uptime_str = format_duration(stats["uptime"])
-                    downtime_str = format_duration(stats["downtime"])
-                    message += f"\n\n📊 Сьогодні: {uptime_str} онлайн, {downtime_str} офлайн ({stats['outages']} відключень)"
-                
-                if telegram_app:
+                for (user_id,) in users:
                     try:
-                        # Send to channel
-                        await telegram_app.bot.send_message(
-                            chat_id=channel_id,
-                            text=message
+                        await context.bot.send_message(
+                            chat_id=user_id,
+                            text=f"🔔 Канал {channel_id}\n\n{message}"
                         )
-                        
-                        # Send DM notifications
-                        conn_notify = sqlite3.connect(DB_FILE)
-                        users = conn_notify.execute(
-                            "SELECT user_id FROM notifications WHERE channel_id = ? AND enabled = 1",
-                            (channel_id,)
-                        ).fetchall()
-                        conn_notify.close()
-                        
-                        for (user_id,) in users:
-                            try:
-                                await telegram_app.bot.send_message(
-                                    chat_id=user_id,
-                                    text=f"🔔 Канал {channel_id}\n\n{message}"
-                                )
-                            except Exception:
-                                pass  # User might have blocked the bot
-                    except Exception as e:
-                        print(f"Error sending message to {channel_id}: {e}")
+                    except Exception:
+                        pass  # User might have blocked the bot
+            except Exception as e:
+                print(f"Error sending message to {channel_id}: {e}")
 
 def main():
     global telegram_app
@@ -1611,23 +1604,20 @@ def main():
     app.router.add_get('/status/{channel_id}', handle_dashboard)
     app.router.add_get('/channelPing', handle_ping)
     
-    # Run both servers
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    # Start timeout checker using job queue
+    telegram_app.job_queue.run_repeating(check_timeouts, interval=30, first=10)
     
-    # Start timeout checker
-    loop.create_task(check_timeouts())
+    # Start HTTP server in background
+    async def start_http():
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, '0.0.0.0', HTTP_PORT)
+        await site.start()
+        print(f"HTTP server started on port {HTTP_PORT}")
     
-    # Start HTTP server
-    runner = web.AppRunner(app)
-    loop.run_until_complete(runner.setup())
-    site = web.TCPSite(runner, '0.0.0.0', HTTP_PORT)
-    loop.run_until_complete(site.start())
+    telegram_app.post_init = lambda app: start_http()
     
-    print(f"HTTP server started on port {HTTP_PORT}")
     print("Starting Telegram bot...")
-    
-    # Start Telegram bot
     telegram_app.run_polling()
 
 if __name__ == "__main__":
